@@ -1,0 +1,377 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
+
+import { useSession } from "@/components/providers/session-provider";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { getApplication, getSimilarJobsForApplication } from "@/lib/api";
+import type { ApplicationDetail, SimilarJobResult } from "@/lib/types";
+import { formatDate, titleCase } from "@/lib/utils";
+
+type StreamEvent = {
+  event: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+};
+
+export default function ApplicationDetailPage() {
+  const params = useParams<{ applicationId: string }>();
+  const applicationId =
+    typeof params.applicationId === "string"
+      ? params.applicationId
+      : params.applicationId?.[0];
+  const { token } = useSession();
+  const [application, setApplication] = useState<ApplicationDetail | null>(null);
+  const [similarJobs, setSimilarJobs] = useState<SimilarJobResult[]>([]);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const currentId = applicationId;
+    if (!token || !currentId) {
+      return;
+    }
+    const resolvedId: string = currentId;
+
+    let cancelled = false;
+    async function load() {
+      setError(null);
+      try {
+        const [applicationResponse, similarJobsResponse] = await Promise.all([
+          getApplication(token, resolvedId),
+          getSimilarJobsForApplication(token, resolvedId),
+        ]);
+        if (!cancelled) {
+          setApplication(applicationResponse);
+          setSimilarJobs(similarJobsResponse);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load application");
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, token]);
+
+  useEffect(() => {
+    const currentId = applicationId;
+    if (!currentId) {
+      return;
+    }
+    const resolvedId: string = currentId;
+
+    const source = new EventSource(`/api/applications/${resolvedId}/status`);
+    const eventNames = ["queued", "pipeline_started", "stage", "complete", "failed"];
+
+    const handler = (incoming: Event) => {
+      const message = incoming as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(message.data) as StreamEvent;
+        setEvents((current) => {
+          if (
+            current.some(
+              (item) =>
+                item.event === payload.event &&
+                item.timestamp === payload.timestamp &&
+                JSON.stringify(item.data) === JSON.stringify(payload.data),
+            )
+          ) {
+            return current;
+          }
+          return [...current, payload];
+        });
+      } catch {
+        // Ignore malformed events and keep the stream alive.
+      }
+    };
+
+    eventNames.forEach((name) => source.addEventListener(name, handler));
+    source.onerror = () => {
+      source.close();
+    };
+
+    return () => {
+      eventNames.forEach((name) => source.removeEventListener(name, handler));
+      source.close();
+    };
+  }, [applicationId]);
+
+  if (!application) {
+    return (
+      <Card>
+        <CardTitle className="text-2xl">Loading application...</CardTitle>
+        <CardDescription>{error ?? "Fetching screening results and agent output."}</CardDescription>
+      </Card>
+    );
+  }
+
+  const screenerOutput = application.agent_runs.find((run) => run.agent_name === "cv_screener")?.output;
+  const schedulerOutput = application.agent_runs.find((run) => run.agent_name === "scheduler")?.output;
+  const offerWriterOutput = application.agent_runs.find((run) => run.agent_name === "offer_writer")?.output;
+  const schedulerCalendarEvent =
+    schedulerOutput?.calendar_event && typeof schedulerOutput.calendar_event === "object"
+      ? (schedulerOutput.calendar_event as Record<string, unknown>)
+      : null;
+  const schedulerEmailDelivery =
+    schedulerOutput?.email_delivery && typeof schedulerOutput.email_delivery === "object"
+      ? (schedulerOutput.email_delivery as Record<string, unknown>)
+      : null;
+  const offerEmailDelivery =
+    offerWriterOutput?.email_delivery && typeof offerWriterOutput.email_delivery === "object"
+      ? (offerWriterOutput.email_delivery as Record<string, unknown>)
+      : null;
+  const assessmentQuestions = Array.isArray(application.assessment_result?.questions)
+    ? (application.assessment_result.questions as string[])
+    : [];
+  const questionProvenance = Array.isArray(application.assessment_result?.question_provenance)
+    ? (application.assessment_result.question_provenance as Array<Record<string, unknown>>)
+    : [];
+
+  return (
+    <div className="space-y-8">
+      <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="space-y-3">
+          <p className="eyebrow">Application Detail</p>
+          <h1 className="section-title">
+            {application.candidate?.name ?? "Candidate"} / {application.job?.title ?? "Role"}
+          </h1>
+          <p className="max-w-2xl text-sm leading-7 text-[color:var(--muted)]">
+            Follow the live SSE timeline, inspect agent reasoning, and review the interview and
+            offer delivery metadata tied to this application.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge>{titleCase(application.status)}</Badge>
+          <Badge>{application.score?.toFixed(2) ?? "Pending score"}</Badge>
+          <Badge>{formatDate(application.updated_at)}</Badge>
+        </div>
+      </section>
+
+      {error ? (
+        <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
+          <CardTitle className="text-xl">Application issue</CardTitle>
+          <CardDescription>{error}</CardDescription>
+        </Card>
+      ) : null}
+
+      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <p className="eyebrow">Screening</p>
+          <CardTitle className="mt-2 text-3xl">Fit summary and signals</CardTitle>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <p className="text-sm font-semibold text-[color:var(--muted)]">Summary</p>
+              <p className="mt-3 text-sm leading-7">
+                {application.screening_notes ?? "Screening summary will appear after the screener finishes."}
+              </p>
+            </div>
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <p className="text-sm font-semibold text-[color:var(--muted)]">Strengths</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(screenerOutput?.strengths as string[] | undefined)?.map((item) => (
+                  <Badge key={item} variant="success">
+                    {item}
+                  </Badge>
+                )) ?? <span className="text-sm text-[color:var(--muted)]">Pending</span>}
+              </div>
+            </div>
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <p className="text-sm font-semibold text-[color:var(--muted)]">Risks</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(screenerOutput?.risks as string[] | undefined)?.map((item) => (
+                  <Badge key={item} variant="warning">
+                    {item}
+                  </Badge>
+                )) ?? <span className="text-sm text-[color:var(--muted)]">Pending</span>}
+              </div>
+            </div>
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <p className="text-sm font-semibold text-[color:var(--muted)]">Evidence</p>
+              <ul className="mt-3 space-y-2 text-sm text-[color:var(--foreground)]">
+                {(screenerOutput?.evidence as string[] | undefined)?.map((item) => (
+                  <li key={item}>{item}</li>
+                )) ?? <li className="text-[color:var(--muted)]">Pending</li>}
+              </ul>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="eyebrow">Live SSE Feed</p>
+              <CardTitle className="mt-2 text-3xl">Pipeline activity</CardTitle>
+            </div>
+            <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
+              <Activity className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-6 grid gap-3">
+            {events.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">
+                Waiting for stream events. This endpoint replays history, so refreshing the page is
+                safe even after the pipeline completes.
+              </p>
+            ) : (
+              events.map((event) => (
+                <div
+                  key={`${event.event}-${event.timestamp}`}
+                  className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge>{titleCase(event.event)}</Badge>
+                    <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                      {formatDate(event.timestamp)}
+                    </p>
+                  </div>
+                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[color:var(--muted)]">
+                    {JSON.stringify(event.data, null, 2)}
+                  </pre>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <Card>
+          <p className="eyebrow">Assessment</p>
+          <CardTitle className="mt-2 text-3xl">Interview question set</CardTitle>
+          <div className="mt-6 space-y-4">
+            {assessmentQuestions.map((question, index) => (
+              <div
+                key={question}
+                className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
+              >
+                <p className="font-semibold">
+                  Q{index + 1}. {question}
+                </p>
+                <p className="mt-2 text-sm text-[color:var(--muted)]">
+                  Provenance:{" "}
+                  {(questionProvenance[index]?.derived_from as string | undefined) ?? "Pending"}
+                  {" / "}
+                  {(questionProvenance[index]?.source_value as string | undefined) ?? "Pending"}
+                </p>
+              </div>
+            ))}
+            {assessmentQuestions.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">
+                Assessment questions will appear once the assessor stage completes.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card>
+          <p className="eyebrow">Scheduling + Offer</p>
+          <CardTitle className="mt-2 text-3xl">Delivered artifacts</CardTitle>
+          <div className="mt-6 grid gap-4">
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--muted)]">
+                <TimerReset className="h-4 w-4" />
+                Scheduled interview
+              </div>
+              <p className="mt-3 text-base font-semibold">{formatDate(application.scheduled_at)}</p>
+              {typeof schedulerCalendarEvent?.html_link === "string" ? (
+                <Link
+                  className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--accent-strong)]"
+                  href={schedulerCalendarEvent.html_link}
+                  target="_blank"
+                >
+                  Open calendar event
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              ) : null}
+            </div>
+
+            <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--muted)]">
+                <Mail className="h-4 w-4" />
+                Offer email
+              </div>
+              <p className="mt-3 text-sm leading-7">
+                {application.offer_text ?? "Offer note pending."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {typeof schedulerEmailDelivery?.mode === "string" ? (
+                  <Badge>{titleCase(schedulerEmailDelivery.mode)} interview delivery</Badge>
+                ) : null}
+                {typeof offerEmailDelivery?.mode === "string" ? (
+                  <Badge>{titleCase(offerEmailDelivery.mode)} offer delivery</Badge>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card>
+          <p className="eyebrow">Similar jobs</p>
+          <CardTitle className="mt-2 text-3xl">Nearby role matches</CardTitle>
+          <div className="mt-6 grid gap-3">
+            {similarJobs.length === 0 ? (
+              <p className="text-sm text-[color:var(--muted)]">No similar jobs returned for this application.</p>
+            ) : (
+              similarJobs.map((match) => (
+                <Link
+                  key={match.job.id}
+                  href={`/jobs/${match.job.id}`}
+                  className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[color:var(--accent)]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{match.job.title}</p>
+                      <p className="mt-1 text-sm text-[color:var(--muted)]">
+                        {titleCase(match.job.seniority)} / {titleCase(match.job.status)}
+                      </p>
+                    </div>
+                    <Badge>{match.similarity_score.toFixed(2)}</Badge>
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <p className="eyebrow">Agent runs</p>
+          <CardTitle className="mt-2 text-3xl">Execution log</CardTitle>
+          <div className="mt-6 grid gap-3">
+            {application.agent_runs.map((run) => (
+              <div
+                key={run.id}
+                className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{titleCase(run.agent_name)}</p>
+                    <p className="mt-1 text-sm text-[color:var(--muted)]">
+                      {titleCase(run.status)} / {run.duration_ms ?? 0} ms / {run.tokens_used ?? 0} tokens
+                    </p>
+                  </div>
+                  <Badge>{titleCase(run.status)}</Badge>
+                </div>
+                {run.output ? (
+                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[color:var(--muted)]">
+                    {JSON.stringify(run.output, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </Card>
+      </section>
+    </div>
+  );
+}

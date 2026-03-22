@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from uuid import UUID
 
@@ -15,6 +15,8 @@ from app.core.database import async_session_factory
 from app.models.agent_run import AgentName, AgentRun, AgentRunStatus
 from app.models.application import Application, ApplicationStatus
 from app.models.job import Job
+from app.services.calendar import GoogleCalendarService
+from app.services.email import ResendEmailService
 from app.services.progress import ApplicationProgressService
 from app.services.screening import ScreeningInsightsService
 
@@ -26,6 +28,8 @@ class ApplicationOrchestrator:
         self.db = db
         self.progress = ApplicationProgressService()
         self.runner = CrewAIPipelineRunner()
+        self.calendar = GoogleCalendarService()
+        self.email = ResendEmailService()
         self.screening = ScreeningInsightsService(db)
 
     async def run(self, application_id: UUID) -> None:
@@ -75,9 +79,14 @@ class ApplicationOrchestrator:
             similarity_score=insights.similarity_score,
             matched_skills=insights.matched_skills,
             missing_skills=insights.missing_skills,
+            screening_strengths=insights.strengths,
+            screening_risks=insights.risks,
+            screening_evidence=insights.evidence,
             similar_jobs=insights.similar_jobs,
             similar_applications=insights.similar_applications,
-            scheduler_slots=self.runner.default_scheduler_slots(),
+            scheduler_slots=await self.calendar.suggest_slots(),
+            delivery_mode=self.email.delivery_mode(),
+            from_email=self.email.from_email,
         )
         context.recommendation = self.runner.recommendation(context)
         return context
@@ -119,6 +128,7 @@ class ApplicationOrchestrator:
         started_at = perf_counter()
         try:
             result = await self.runner.run_task(agent_name, context)
+            await self._attach_side_effects(application, agent_name, context, result.output)
             agent_run.status = AgentRunStatus.COMPLETED
             agent_run.output = result.output
             agent_run.tokens_used = result.tokens_used
@@ -151,6 +161,53 @@ class ApplicationOrchestrator:
                 },
             )
             raise
+
+    async def _attach_side_effects(
+        self,
+        application: Application,
+        agent_name: AgentName,
+        context: PipelineContext,
+        output: dict[str, object],
+    ) -> None:
+        """Attach provider metadata and side effects to agent outputs."""
+        if agent_name == AgentName.SCHEDULER:
+            scheduled_at = str(
+                output.get("scheduled_at")
+                or (context.scheduler_slots[0] if context.scheduler_slots else datetime.now(timezone.utc).isoformat())
+            )
+            output["scheduled_at"] = scheduled_at
+            calendar_event = await self.calendar.schedule_interview(
+                candidate_email=context.candidate_email,
+                candidate_name=context.candidate_name,
+                job_title=context.job_title,
+                scheduled_at=scheduled_at,
+            )
+            email_delivery = await self.email.send_email(
+                to_email=context.candidate_email,
+                subject=f"Interview Invitation: {context.job_title}",
+                html=self.email.render_interview_email(
+                    candidate_name=context.candidate_name,
+                    job_title=context.job_title,
+                    scheduled_at=scheduled_at,
+                    calendar_link=calendar_event.get("html_link") if isinstance(calendar_event, dict) else None,
+                ),
+            )
+            output["calendar_event"] = calendar_event
+            output["email_delivery"] = email_delivery
+            return
+
+        if agent_name == AgentName.OFFER_WRITER:
+            offer_text = str(output.get("offer_text", ""))
+            email_delivery = await self.email.send_email(
+                to_email=context.candidate_email,
+                subject=f"Offer Update: {context.job_title}",
+                html=self.email.render_offer_email(
+                    candidate_name=context.candidate_name,
+                    company_name=context.company_name,
+                    offer_text=offer_text,
+                ),
+            )
+            output["email_delivery"] = email_delivery
 
     @staticmethod
     def _apply_output(

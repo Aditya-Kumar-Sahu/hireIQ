@@ -37,6 +37,9 @@ class ScreeningInsights:
     similarity_score: float
     matched_skills: list[str]
     missing_skills: list[str]
+    strengths: list[str]
+    risks: list[str]
+    evidence: list[str]
     similar_jobs: list[dict[str, object]]
     similar_applications: list[dict[str, object]]
 
@@ -59,10 +62,29 @@ class ScreeningInsightsService:
             application.job.embedding,
             application.candidate.resume_embedding,
         )
+        strengths = self.build_strengths(
+            similarity_score=similarity_score,
+            matched_skills=matched_skills,
+            similar_jobs=similar_jobs,
+        )
+        risks = self.build_risks(
+            similarity_score=similarity_score,
+            missing_skills=missing_skills,
+            similar_applications=similar_applications,
+        )
+        evidence = self.build_evidence(
+            similarity_score=similarity_score,
+            matched_skills=matched_skills,
+            missing_skills=missing_skills,
+            similar_applications=similar_applications,
+        )
         return ScreeningInsights(
             similarity_score=similarity_score,
             matched_skills=matched_skills,
             missing_skills=missing_skills,
+            strengths=strengths,
+            risks=risks,
+            evidence=evidence,
             similar_jobs=similar_jobs,
             similar_applications=similar_applications,
         )
@@ -154,6 +176,61 @@ class ScreeningInsightsService:
         if not matches:
             return 0
         return max(int(value) for value in matches)
+
+    @staticmethod
+    def build_strengths(
+        *,
+        similarity_score: float,
+        matched_skills: list[str],
+        similar_jobs: list[dict[str, object]],
+    ) -> list[str]:
+        """Summarize the strongest positive fit signals."""
+        strengths: list[str] = []
+        if matched_skills:
+            strengths.append(f"Matched skills: {', '.join(matched_skills[:4])}")
+        if similarity_score >= 0.8:
+            strengths.append(f"High semantic fit score ({similarity_score:.2f})")
+        if similar_jobs:
+            strengths.append(f"Closest internal role match: {similar_jobs[0]['title']}")
+        return strengths or ["Resume provides enough signal for recruiter review"]
+
+    @staticmethod
+    def build_risks(
+        *,
+        similarity_score: float,
+        missing_skills: list[str],
+        similar_applications: list[dict[str, object]],
+    ) -> list[str]:
+        """Summarize the main candidate risks."""
+        risks: list[str] = []
+        if missing_skills:
+            risks.append(f"Missing tracked skills: {', '.join(missing_skills[:4])}")
+        if similarity_score < 0.6:
+            risks.append(f"Lower semantic fit score ({similarity_score:.2f})")
+        if similar_applications and similar_applications[0].get("score") is not None:
+            risks.append("Historical matches should be reviewed before making a final decision")
+        return risks or ["No major structured risks detected from the current screening heuristics"]
+
+    @staticmethod
+    def build_evidence(
+        *,
+        similarity_score: float,
+        matched_skills: list[str],
+        missing_skills: list[str],
+        similar_applications: list[dict[str, object]],
+    ) -> list[str]:
+        """Return short evidence points used by the screener."""
+        evidence = [
+            f"Similarity score: {similarity_score:.2f}",
+            f"Matched skill count: {len(matched_skills)}",
+            f"Missing skill count: {len(missing_skills)}",
+        ]
+        if similar_applications:
+            evidence.append(
+                "Most similar past application: "
+                f"{similar_applications[0]['candidate_name']} for {similar_applications[0]['job_title']}"
+            )
+        return evidence
 
     @staticmethod
     def cosine_similarity(job_embedding: list[float] | None, resume_embedding: list[float] | None) -> float:

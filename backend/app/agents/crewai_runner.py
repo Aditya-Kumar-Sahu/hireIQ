@@ -27,16 +27,24 @@ class PipelineContext(BaseModel):
     similarity_score: float
     matched_skills: list[str]
     missing_skills: list[str]
+    screening_strengths: list[str]
+    screening_risks: list[str]
+    screening_evidence: list[str]
     similar_jobs: list[dict[str, object]]
     similar_applications: list[dict[str, object]]
     recommendation: str = "review"
     scheduler_slots: list[str] = Field(default_factory=list)
+    delivery_mode: str = "preview"
+    from_email: str = "noreply@hireiq.dev"
 
 
 class CVScreenerOutput(BaseModel):
     score: float
     matched_skills: list[str]
     missing_skills: list[str]
+    strengths: list[str]
+    risks: list[str]
+    evidence: list[str]
     similar_jobs: list[dict[str, object]]
     similar_applications: list[dict[str, object]]
     recommendation: str
@@ -47,6 +55,7 @@ class CVScreenerOutput(BaseModel):
 class AssessorOutput(BaseModel):
     questions: list[str]
     focus_areas: list[str]
+    question_provenance: list[dict[str, object]]
 
 
 class SchedulerOutput(BaseModel):
@@ -79,6 +88,7 @@ class CrewAIPipelineRunner:
         from app.tools.recruitment_tools import (
             ApplicationContextTool,
             CalendarSlotsTool,
+            EmailDeliveryTool,
             OfferDraftTool,
             SimilarApplicationsTool,
             SimilarJobsTool,
@@ -122,6 +132,7 @@ class CrewAIPipelineRunner:
                 tools=[
                     ApplicationContextTool(context),
                     CalendarSlotsTool(context),
+                    EmailDeliveryTool(context),
                 ],
             ),
             AgentName.OFFER_WRITER: Agent(
@@ -134,6 +145,7 @@ class CrewAIPipelineRunner:
                 tools=[
                     ApplicationContextTool(context),
                     OfferDraftTool(context),
+                    EmailDeliveryTool(context),
                 ],
             ),
         }
@@ -166,8 +178,9 @@ class CrewAIPipelineRunner:
                 description=(
                     "Evaluate the candidate against the job. Use the tools to inspect application context, "
                     "similar jobs, past similar applications, and skill gaps. Return a structured JSON "
-                    "screening report with score, matched_skills, missing_skills, similar_jobs, "
-                    "similar_applications, recommendation, summary, and experience_years."
+                    "screening report with score, matched_skills, missing_skills, strengths, risks, "
+                    "evidence, similar_jobs, similar_applications, recommendation, summary, "
+                    "and experience_years."
                 ),
                 expected_output="Structured JSON screening report.",
                 output_json=CVScreenerOutput,
@@ -177,7 +190,7 @@ class CrewAIPipelineRunner:
             return Task(
                 description=(
                     "Generate focused interview questions for this candidate and role. "
-                    "Return JSON with questions and focus_areas."
+                    "Return JSON with questions, focus_areas, and question_provenance."
                 ),
                 expected_output="Structured JSON assessment plan.",
                 output_json=AssessorOutput,
@@ -243,6 +256,9 @@ class CrewAIPipelineRunner:
                 score=round(context.similarity_score, 4),
                 matched_skills=context.matched_skills,
                 missing_skills=context.missing_skills,
+                strengths=context.screening_strengths,
+                risks=context.screening_risks,
+                evidence=context.screening_evidence,
                 similar_jobs=context.similar_jobs,
                 similar_applications=context.similar_applications,
                 recommendation=self.recommendation(context),
@@ -256,7 +272,30 @@ class CrewAIPipelineRunner:
                 f"How would you approach a challenge involving {focus_areas[0]}?",
                 "How do you balance delivery speed with maintainability in production systems?",
             ]
-            return AssessorOutput(questions=questions, focus_areas=focus_areas).model_dump()
+            question_provenance = [
+                {
+                    "question": questions[0],
+                    "derived_from": "job_title",
+                    "source_value": context.job_title,
+                },
+                {
+                    "question": questions[1],
+                    "derived_from": "skill_gap",
+                    "source_value": focus_areas[0],
+                },
+                {
+                    "question": questions[2],
+                    "derived_from": "screening_risk",
+                    "source_value": context.screening_risks[0]
+                    if context.screening_risks
+                    else "general engineering judgment",
+                },
+            ]
+            return AssessorOutput(
+                questions=questions,
+                focus_areas=focus_areas,
+                question_provenance=question_provenance,
+            ).model_dump()
         if agent_name == AgentName.SCHEDULER:
             scheduled_at = context.scheduler_slots[0]
             return SchedulerOutput(

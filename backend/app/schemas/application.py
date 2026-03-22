@@ -11,6 +11,25 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models.application import ApplicationStatus
+from app.models.job import JobSeniority, JobStatus
+
+
+class ApplicationJobSummary(BaseModel):
+    """Job summary embedded on application responses."""
+
+    id: UUID
+    title: str
+    status: JobStatus
+    seniority: JobSeniority
+
+
+class ApplicationCandidateSummary(BaseModel):
+    """Candidate summary embedded on application responses."""
+
+    id: UUID
+    name: str
+    email: str
+    linkedin_url: str | None
 
 
 class ApplicationCreate(BaseModel):
@@ -68,6 +87,8 @@ class ApplicationResponse(BaseModel):
     offer_text: str | None
     created_at: datetime
     updated_at: datetime
+    job: ApplicationJobSummary | None = None
+    candidate: ApplicationCandidateSummary | None = None
 
     model_config = {"from_attributes": True}
 

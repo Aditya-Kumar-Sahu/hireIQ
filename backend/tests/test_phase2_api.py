@@ -227,6 +227,26 @@ def test_validation_errors_use_standard_envelope(client: TestClient) -> None:
     assert "password" in payload["error"]
 
 
+def test_integration_status_endpoint_is_authenticated_and_shaped(client: TestClient) -> None:
+    """Frontend settings can inspect integration readiness through a protected meta endpoint."""
+    token = _signup_and_authenticate(client, "settings@example.com")
+
+    response = client.get(
+        "/api/v1/meta/integrations",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert set(payload.keys()) == {
+        "openai_enabled",
+        "google_calendar_enabled",
+        "resend_enabled",
+        "sse_enabled",
+    }
+    assert payload["sse_enabled"] is True
+
+
 def test_protected_endpoints_require_authentication(client: TestClient) -> None:
     """Protected endpoints reject missing credentials."""
     response = client.get("/api/v1/jobs?page=1&limit=10")

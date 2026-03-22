@@ -16,14 +16,18 @@ from app.models.job import Job
 from app.models.user import User
 from app.schemas.application import (
     AgentRunResponse,
+    ApplicationCandidateSummary,
     ApplicationCreate,
     ApplicationDetailResponse,
+    ApplicationJobSummary,
     ApplicationResponse,
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
 
 
 def _to_application_response(application: Application) -> ApplicationResponse:
+    job = application.__dict__.get("job")
+    candidate = application.__dict__.get("candidate")
     return ApplicationResponse(
         id=application.id,
         job_id=application.job_id,
@@ -36,6 +40,26 @@ def _to_application_response(application: Application) -> ApplicationResponse:
         offer_text=application.offer_text,
         created_at=application.created_at,
         updated_at=application.updated_at,
+        job=(
+            ApplicationJobSummary(
+                id=job.id,
+                title=job.title,
+                status=job.status,
+                seniority=job.seniority,
+            )
+            if job is not None
+            else None
+        ),
+        candidate=(
+            ApplicationCandidateSummary(
+                id=candidate.id,
+                name=candidate.name,
+                email=candidate.email,
+                linkedin_url=candidate.linkedin_url,
+            )
+            if candidate is not None
+            else None
+        ),
     )
 
 
@@ -83,7 +107,15 @@ class ApplicationService:
         if status is not None:
             filters.append(Application.status == status)
 
-        query = select(Application).join(Job, Job.id == Application.job_id).where(*filters)
+        query = (
+            select(Application)
+            .join(Job, Job.id == Application.job_id)
+            .options(
+                selectinload(Application.job),
+                selectinload(Application.candidate),
+            )
+            .where(*filters)
+        )
         total = await self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
         result = await self.db.scalars(
             query.order_by(Application.created_at.desc())

@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #fbf6ee;
+  --foreground: #1f1a16;
+  --panel: rgba(255, 251, 245, 0.76);
+  --muted: #6d6255;
+  --muted-soft: #a69884;
+  --line: rgba(76, 53, 26, 0.12);
+  --accent: #c15c2f;
+  --accent-strong: #7c2d12;
+  --success: #0f766e;
+  --warning: #b45309;
+  --danger: #b42318;
+  --shadow: 0 24px 90px rgba(92, 52, 19, 0.12);
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans), sans-serif;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(circle at top left, rgba(255, 203, 151, 0.35), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(171, 202, 255, 0.28), transparent 30%),
+    linear-gradient(180deg, #fffaf4 0%, #fbf6ee 46%, #f3ead8 100%);
+}
+
+body::selection {
+  background: rgba(193, 92, 47, 0.18);
+}
+
+a {
+  color: inherit;
+}
+
+* {
+  border-color: var(--line);
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display), serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass-panel {
+    @apply border backdrop-blur-xl;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+
+  .section-title {
+    @apply text-3xl font-semibold md:text-4xl;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.32em];
+    color: var(--muted-soft);
+  }
+}

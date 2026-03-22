@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:3000/api/auth/google/callback"
+    GOOGLE_CALENDAR_ID: str = "primary"
+    GOOGLE_CALENDAR_ACCESS_TOKEN: str = ""
+    GOOGLE_CALENDAR_REFRESH_TOKEN: str = ""
+    GOOGLE_CALENDAR_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
 
     # ── Email (Resend) ─────────────────────────────────────────────────
     RESEND_API_KEY: str = ""

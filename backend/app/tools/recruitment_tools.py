@@ -74,6 +74,9 @@ class SkillGapTool(_ContextTool):
                 "matched_skills": self._context.matched_skills,
                 "missing_skills": self._context.missing_skills,
                 "similarity_score": self._context.similarity_score,
+                "strengths": self._context.screening_strengths,
+                "risks": self._context.screening_risks,
+                "evidence": self._context.screening_evidence,
             }
         )
 
@@ -101,5 +104,20 @@ class OfferDraftTool(_ContextTool):
                 "job_title": self._context.job_title,
                 "company_name": self._context.company_name,
                 "recommendation": self._context.recommendation,
+            }
+        )
+
+
+class EmailDeliveryTool(_ContextTool):
+    """Expose active email-delivery configuration to the agent."""
+
+    name: str = "email_delivery_context"
+    description: str = "Return sender metadata and whether real email delivery is enabled."
+
+    def _run(self) -> str:
+        return json.dumps(
+            {
+                "delivery_mode": self._context.delivery_mode,
+                "from_email": self._context.from_email,
             }
         )

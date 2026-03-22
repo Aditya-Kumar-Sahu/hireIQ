@@ -29,6 +29,7 @@ from app.schemas.candidate import (
 from app.schemas.common import APIResponse, PaginatedResponse, PaginationParams
 from app.schemas.job import JobCreate, JobListResponse, JobResponse, JobUpdate
 from app.schemas.job import SimilarJobResult
+from app.schemas.meta import IntegrationStatusResponse
 
 __all__ = [
     "APIResponse",
@@ -52,6 +53,7 @@ __all__ = [
     "OfferRequest",
     "PaginatedResponse",
     "PaginationParams",
+    "IntegrationStatusResponse",
     "ScheduleRequest",
     "SimilarJobResult",
     "SignupRequest",
