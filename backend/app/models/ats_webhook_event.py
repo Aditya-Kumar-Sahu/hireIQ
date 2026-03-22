@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,6 +16,9 @@ class ATSWebhookEvent(Base):
     """Persist inbound webhook deliveries for traceability and replay."""
 
     __tablename__ = "ats_webhook_events"
+    __table_args__ = (
+        Index("ix_ats_webhook_events_provider_received_at", "provider", "received_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

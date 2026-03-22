@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: hireiq
+          POSTGRES_PASSWORD: hireiq_secret
+          POSTGRES_DB: hireiq
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hireiq -d hireiq"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://hireiq:hireiq_secret@127.0.0.1:5432/hireiq
+      REDIS_URL: redis://127.0.0.1:6379/0
+      JWT_SECRET_KEY: ci-secret-key
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run backend tests
+        working-directory: backend
+        run: pytest tests -q
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build

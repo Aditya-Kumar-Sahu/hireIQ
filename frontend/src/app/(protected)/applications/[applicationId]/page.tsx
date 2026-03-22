@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
@@ -17,6 +17,370 @@ type StreamEvent = {
   timestamp: string;
   data: Record<string, unknown>;
 };
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function getNumber(value: unknown) {
+  return typeof value === "number" ? value : null;
+}
+
+function getRecord(value: unknown) {
+  return isRecord(value) ? value : null;
+}
+
+function getRecordArray(value: unknown) {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatStructuredKey(key: string) {
+  return titleCase(key.replace(/\./g, " ").replace(/_/g, " "));
+}
+
+function StructuredValue({
+  value,
+  depth = 0,
+}: {
+  value: unknown;
+  depth?: number;
+}) {
+  if (value === null || value === undefined) {
+    return <span className="text-sm text-[color:var(--muted)]">None</span>;
+  }
+
+  if (typeof value === "string") {
+    return <p className="break-words text-sm leading-7 text-[color:var(--foreground)]">{value}</p>;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return <p className="text-sm font-medium text-[color:var(--foreground)]">{String(value)}</p>;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="text-sm text-[color:var(--muted)]">None</span>;
+    }
+
+    const primitiveItems = value.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        typeof item === "string" ||
+        typeof item === "number" ||
+        typeof item === "boolean",
+    );
+
+    if (primitiveItems) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {value.map((item, index) => (
+            <Badge key={`${String(item)}-${index}`} variant="default">
+              {String(item)}
+            </Badge>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-3">
+        {value.map((item, index) => (
+          <div
+            key={index}
+            className="rounded-2xl border border-[color:var(--line)] bg-[rgba(255,255,255,0.72)] p-3"
+          >
+            <StructuredValue value={item} depth={depth + 1} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) {
+      return <span className="text-sm text-[color:var(--muted)]">None</span>;
+    }
+
+    return (
+      <div className="grid gap-3">
+        {entries.map(([key, entryValue]) => (
+          <div
+            key={key}
+            className="rounded-2xl border border-[color:var(--line)] bg-[rgba(255,255,255,0.58)] p-3"
+          >
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+              {formatStructuredKey(key)}
+            </p>
+            <div className="mt-2">
+              <StructuredValue value={entryValue} depth={depth + 1} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <p className="text-sm text-[color:var(--foreground)]">{String(value)}</p>;
+}
+
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      className="rounded-[1.15rem] border border-[color:var(--line)] bg-[rgba(247,243,236,0.72)]"
+      open={defaultOpen}
+    >
+      <summary className="cursor-pointer list-none px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">{title}</p>
+            {subtitle ? (
+              <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[color:var(--muted-soft)]">
+                {subtitle}
+              </p>
+            ) : null}
+          </div>
+          <span className="text-xs uppercase tracking-[0.14em] text-[color:var(--muted-soft)]">
+            Toggle
+          </span>
+        </div>
+      </summary>
+      <div className="border-t border-[color:var(--line)] px-4 py-4">{children}</div>
+    </details>
+  );
+}
+
+function TimelineEventCard({ event }: { event: StreamEvent }) {
+  const status = getString(event.data.status);
+  const stage = getString(event.data.stage);
+  const agentName = getString(event.data.agent_name);
+  const errorMessage = getString(event.data.error);
+
+  let body: ReactNode = <StructuredValue value={event.data} />;
+
+  if (event.event === "queued" || event.event === "pipeline_started") {
+    body = (
+      <div className="flex flex-wrap gap-2">
+        {status ? <Badge>{titleCase(status)}</Badge> : null}
+        {getString(event.data.application_id) ? (
+          <Badge variant="default">Application queued</Badge>
+        ) : null}
+      </div>
+    );
+  } else if (event.event === "stage") {
+    body = (
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-[color:var(--line)] bg-[rgba(247,243,236,0.68)] p-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+            Stage
+          </p>
+          <p className="mt-2 text-sm font-semibold">{stage ? titleCase(stage) : "Unknown"}</p>
+        </div>
+        <div className="rounded-2xl border border-[color:var(--line)] bg-[rgba(247,243,236,0.68)] p-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+            Agent
+          </p>
+          <p className="mt-2 text-sm font-semibold">
+            {agentName ? titleCase(agentName) : "Pipeline"}
+          </p>
+        </div>
+        {status ? (
+          <div className="sm:col-span-2">
+            <Badge variant={status === "completed" ? "success" : status === "failed" ? "danger" : "default"}>
+              {titleCase(status)}
+            </Badge>
+          </div>
+        ) : null}
+      </div>
+    );
+  } else if (event.event === "complete") {
+    body = (
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="success">Pipeline completed</Badge>
+        {status ? <Badge>{titleCase(status)}</Badge> : null}
+      </div>
+    );
+  } else if (event.event === "failed") {
+    body = (
+      <div className="grid gap-3">
+        <Badge variant="danger">Pipeline failed</Badge>
+        {errorMessage ? (
+          <p className="text-sm leading-7 text-[color:var(--foreground)]">{errorMessage}</p>
+        ) : (
+          <StructuredValue value={event.data} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <Badge>{titleCase(event.event)}</Badge>
+        <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+          {formatDate(event.timestamp)}
+        </p>
+      </div>
+      <div className="mt-3">{body}</div>
+    </div>
+  );
+}
+
+function AgentOutputSections({
+  agentName,
+  output,
+}: {
+  agentName: string;
+  output: Record<string, unknown>;
+}) {
+  const sections: ReactNode[] = [];
+  const similarJobs = getRecordArray(output.similar_jobs);
+  const questionProvenance = getRecordArray(output.question_provenance);
+  const calendarEvent = getRecord(output.calendar_event);
+  const emailDelivery = getRecord(output.email_delivery);
+  const proposedSlots = Array.isArray(output.proposed_slots) ? output.proposed_slots : [];
+  const hiddenKeys = new Set([
+    "similar_jobs",
+    "question_provenance",
+    "calendar_event",
+    "email_delivery",
+    "proposed_slots",
+  ]);
+
+  const summaryEntries = Object.entries(output).filter(([key]) => !hiddenKeys.has(key));
+
+  if (summaryEntries.length > 0) {
+    sections.push(
+      <div key={`${agentName}-summary`} className="grid gap-3">
+        {summaryEntries.map(([key, value]) => (
+          <div
+            key={key}
+            className="rounded-2xl border border-[color:var(--line)] bg-[rgba(247,243,236,0.68)] p-3"
+          >
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+              {formatStructuredKey(key)}
+            </p>
+            <div className="mt-2">
+              <StructuredValue value={value} />
+            </div>
+          </div>
+        ))}
+      </div>,
+    );
+  }
+
+  if (similarJobs.length > 0) {
+    sections.push(
+      <CollapsibleSection
+        key={`${agentName}-similar-jobs`}
+        title="Similar jobs"
+        subtitle={`${similarJobs.length} match${similarJobs.length === 1 ? "" : "es"}`}
+      >
+        <div className="grid gap-3">
+          {similarJobs.map((job, index) => (
+            <div
+              key={`${getString(job.job_id) ?? index}`}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3"
+            >
+              <p className="font-semibold">{getString(job.title) ?? "Untitled role"}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {getString(job.job_id) ? <Badge variant="default">{getString(job.job_id)}</Badge> : null}
+                {getNumber(job.similarity_score) !== null ? (
+                  <Badge variant="success">{getNumber(job.similarity_score)?.toFixed(2)}</Badge>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CollapsibleSection>,
+    );
+  }
+
+  if (questionProvenance.length > 0) {
+    sections.push(
+      <CollapsibleSection
+        key={`${agentName}-question-provenance`}
+        title="Question provenance"
+        subtitle={`${questionProvenance.length} generated prompt trail${questionProvenance.length === 1 ? "" : "s"}`}
+      >
+        <div className="grid gap-3">
+          {questionProvenance.map((item, index) => (
+            <div
+              key={`${getString(item.question) ?? index}`}
+              className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3"
+            >
+              <p className="text-sm font-semibold">{getString(item.question) ?? "Generated question"}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {getString(item.derived_from) ? (
+                  <Badge variant="default">{titleCase(getString(item.derived_from) ?? "")}</Badge>
+                ) : null}
+                {getString(item.source_value) ? (
+                  <Badge variant="default">{getString(item.source_value)}</Badge>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CollapsibleSection>,
+    );
+  }
+
+  if (calendarEvent || emailDelivery || proposedSlots.length > 0) {
+    sections.push(
+      <CollapsibleSection key={`${agentName}-delivery`} title="Delivery metadata" subtitle="Provider payloads">
+        <div className="grid gap-3">
+          {calendarEvent ? (
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                Calendar event
+              </p>
+              <div className="mt-2">
+                <StructuredValue value={calendarEvent} />
+              </div>
+            </div>
+          ) : null}
+          {emailDelivery ? (
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                Email delivery
+              </p>
+              <div className="mt-2">
+                <StructuredValue value={emailDelivery} />
+              </div>
+            </div>
+          ) : null}
+          {proposedSlots.length > 0 ? (
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/75 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                Proposed slots
+              </p>
+              <div className="mt-2">
+                <StructuredValue value={proposedSlots} />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </CollapsibleSection>,
+    );
+  }
+
+  return <div className="grid gap-3">{sections}</div>;
+}
 
 export default function ApplicationDetailPage() {
   const params = useParams<{ applicationId: string }>();
@@ -222,22 +586,7 @@ export default function ApplicationDetailPage() {
                 safe even after the pipeline completes.
               </p>
             ) : (
-              events.map((event) => (
-                <div
-                  key={`${event.event}-${event.timestamp}`}
-                  className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <Badge>{titleCase(event.event)}</Badge>
-                    <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
-                      {formatDate(event.timestamp)}
-                    </p>
-                  </div>
-                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[color:var(--muted)]">
-                    {JSON.stringify(event.data, null, 2)}
-                  </pre>
-                </div>
-              ))
+              events.map((event) => <TimelineEventCard key={`${event.event}-${event.timestamp}`} event={event} />)
             )}
           </div>
         </Card>
@@ -363,9 +712,9 @@ export default function ApplicationDetailPage() {
                   <Badge>{titleCase(run.status)}</Badge>
                 </div>
                 {run.output ? (
-                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[color:var(--muted)]">
-                    {JSON.stringify(run.output, null, 2)}
-                  </pre>
+                  <div className="mt-3">
+                    <AgentOutputSections agentName={run.agent_name} output={run.output} />
+                  </div>
                 ) : null}
               </div>
             ))}

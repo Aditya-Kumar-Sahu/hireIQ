@@ -28,7 +28,7 @@ test("recruiter can sign up, create a candidate and job, and open an application
   );
   await page.getByTestId("candidate-save").click();
 
-  await expect(page.getByText(candidateName)).toBeVisible();
+  await expect(page.getByRole("heading", { name: candidateName, exact: true })).toBeVisible();
 
   await page.goto("/jobs/new");
   await expect(page.getByText("Open a new hiring lane")).toBeVisible();

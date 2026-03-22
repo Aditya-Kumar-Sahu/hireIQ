@@ -11,7 +11,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,9 @@ class AgentRun(Base):
     """An individual agent execution record with full observability data."""
 
     __tablename__ = "agent_runs"
+    __table_args__ = (
+        Index("ix_agent_runs_application_created_at", "application_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

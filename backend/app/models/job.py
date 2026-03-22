@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,9 @@ class Job(Base):
     """A job listing with an optional vector embedding for semantic search."""
 
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_company_status_created_at", "company_id", "status", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
