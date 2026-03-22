@@ -16,9 +16,11 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1.routes import router as api_v1_router
 from app.core.config import settings
 from app.core.database import engine
 from app.core.exceptions import HireIQException
@@ -96,6 +98,25 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """Return request validation issues in the standard response envelope."""
+        errors = [
+            f"{'.'.join(str(part) for part in err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": "; ".join(errors),
+            },
+        )
+
     # ── Health Check ───────────────────────────────────────────────
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:
@@ -110,9 +131,7 @@ def create_app() -> FastAPI:
         }
 
     # ── API Routes ─────────────────────────────────────────────────
-    # Routes will be registered here as they are built in Phase 2+
-    # from app.api.v1.routes import router as api_v1_router
-    # app.include_router(api_v1_router, prefix="/api/v1")
+    app.include_router(api_v1_router, prefix="/api/v1")
 
     return app
 

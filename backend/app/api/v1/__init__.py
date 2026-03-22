@@ -1,1 +1,1 @@
-# API v1 route definitions
+"""API v1 package."""

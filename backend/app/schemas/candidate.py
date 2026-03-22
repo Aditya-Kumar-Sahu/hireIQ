@@ -5,15 +5,16 @@ Candidate schemas — create and response models.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class CandidateCreate(BaseModel):
     """Request body for adding a candidate."""
 
     name: str = Field(min_length=1, max_length=255)
-    email: EmailStr
+    email: str = Field(min_length=3, max_length=255)
     linkedin_url: str | None = Field(default=None, max_length=500)
     resume_text: str | None = None
 
@@ -21,7 +22,7 @@ class CandidateCreate(BaseModel):
 class CandidateResponse(BaseModel):
     """Candidate profile response."""
 
-    id: str
+    id: UUID
     name: str
     email: str
     linkedin_url: str | None

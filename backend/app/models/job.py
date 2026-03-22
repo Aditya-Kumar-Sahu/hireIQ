@@ -56,13 +56,23 @@ class Job(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     requirements: Mapped[str] = mapped_column(Text, nullable=False)
     seniority: Mapped[JobSeniority] = mapped_column(
-        Enum(JobSeniority, name="job_seniority", create_constraint=True),
+        Enum(
+            JobSeniority,
+            name="job_seniority",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=JobSeniority.MID,
         nullable=False,
     )
     embedding = mapped_column(Vector(1536), nullable=True)
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus, name="job_status", create_constraint=True),
+        Enum(
+            JobStatus,
+            name="job_status",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=JobStatus.DRAFT,
         nullable=False,
         index=True,

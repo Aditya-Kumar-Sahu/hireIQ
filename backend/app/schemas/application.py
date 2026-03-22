@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.application import ApplicationStatus
 
@@ -15,8 +16,8 @@ from app.models.application import ApplicationStatus
 class ApplicationCreate(BaseModel):
     """Request body for submitting an application."""
 
-    job_id: str
-    candidate_id: str
+    job_id: UUID
+    candidate_id: UUID
 
 
 class ApplicationStatusUpdate(BaseModel):
@@ -40,7 +41,7 @@ class OfferRequest(BaseModel):
 class AgentRunResponse(BaseModel):
     """Agent execution log entry."""
 
-    id: str
+    id: UUID
     agent_name: str
     status: str
     input: str | None
@@ -56,10 +57,10 @@ class AgentRunResponse(BaseModel):
 class ApplicationResponse(BaseModel):
     """Application detail response."""
 
-    id: str
-    job_id: str
-    candidate_id: str
-    status: str
+    id: UUID
+    job_id: UUID
+    candidate_id: UUID
+    status: ApplicationStatus
     score: float | None
     screening_notes: str | None
     assessment_result: dict[str, Any] | None
@@ -74,7 +75,7 @@ class ApplicationResponse(BaseModel):
 class ApplicationDetailResponse(ApplicationResponse):
     """Application response with agent run history."""
 
-    agent_runs: list[AgentRunResponse] = []
+    agent_runs: list[AgentRunResponse] = Field(default_factory=list)
 
 
 class ApplicationListResponse(BaseModel):

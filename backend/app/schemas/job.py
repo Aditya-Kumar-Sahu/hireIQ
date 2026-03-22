@@ -5,6 +5,7 @@ Job schemas — create, update, and response models.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -33,13 +34,13 @@ class JobUpdate(BaseModel):
 class JobResponse(BaseModel):
     """Job listing response."""
 
-    id: str
-    company_id: str
+    id: UUID
+    company_id: UUID
     title: str
     description: str
     requirements: str
-    seniority: str
-    status: str
+    seniority: JobSeniority
+    status: JobStatus
     has_embedding: bool = False
     created_at: datetime
 

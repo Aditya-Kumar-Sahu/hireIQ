@@ -4,13 +4,18 @@ Auth schemas — signup, login, and token responses.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+from app.models.user import UserRole
 
 
 class SignupRequest(BaseModel):
     """Request body for user registration."""
 
-    email: EmailStr
+    email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=8, max_length=128)
     company_name: str = Field(min_length=1, max_length=255)
 
@@ -18,7 +23,7 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     """Request body for user login."""
 
-    email: EmailStr
+    email: str = Field(min_length=3, max_length=255)
     password: str
 
 
@@ -32,11 +37,11 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     """Public user profile."""
 
-    id: str
+    id: UUID
     email: str
-    role: str
-    company_id: str
-    created_at: str
+    role: UserRole
+    company_id: UUID
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 

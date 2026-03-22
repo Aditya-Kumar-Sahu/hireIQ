@@ -53,12 +53,22 @@ class AgentRun(Base):
         index=True,
     )
     agent_name: Mapped[AgentName] = mapped_column(
-        Enum(AgentName, name="agent_name", create_constraint=True),
+        Enum(
+            AgentName,
+            name="agent_name",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         index=True,
     )
     status: Mapped[AgentRunStatus] = mapped_column(
-        Enum(AgentRunStatus, name="agent_run_status", create_constraint=True),
+        Enum(
+            AgentRunStatus,
+            name="agent_run_status",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=AgentRunStatus.PENDING,
         nullable=False,
     )

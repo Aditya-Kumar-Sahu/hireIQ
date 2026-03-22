@@ -11,7 +11,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Text
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,9 @@ class Application(Base):
     """A candidate's application to a job, tracking agent pipeline progress."""
 
     __tablename__ = "applications"
+    __table_args__ = (
+        UniqueConstraint("job_id", "candidate_id", name="uq_applications_job_candidate"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -53,7 +56,12 @@ class Application(Base):
         index=True,
     )
     status: Mapped[ApplicationStatus] = mapped_column(
-        Enum(ApplicationStatus, name="application_status", create_constraint=True),
+        Enum(
+            ApplicationStatus,
+            name="application_status",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=ApplicationStatus.SUBMITTED,
         nullable=False,
         index=True,

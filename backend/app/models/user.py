@@ -43,7 +43,12 @@ class User(Base):
     )
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role", create_constraint=True),
+        Enum(
+            UserRole,
+            name="user_role",
+            create_constraint=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=UserRole.RECRUITER,
         nullable=False,
     )
