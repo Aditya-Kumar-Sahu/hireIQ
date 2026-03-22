@@ -128,6 +128,23 @@ export type TokenResponse = {
 export type IntegrationStatus = {
   openai_enabled: boolean;
   google_calendar_enabled: boolean;
+  google_calendar_connected_email: string | null;
   resend_enabled: boolean;
+  r2_enabled: boolean;
+  resume_storage_enabled: boolean;
+  ats_webhooks_enabled: boolean;
+  ats_webhook_url: string;
   sse_enabled: boolean;
+};
+
+export type GoogleCalendarAuthorization = {
+  authorization_url: string;
+  state: string;
+};
+
+export type GoogleCalendarConnection = {
+  provider: string;
+  connected: boolean;
+  connected_email: string | null;
+  calendar_id: string | null;
 };

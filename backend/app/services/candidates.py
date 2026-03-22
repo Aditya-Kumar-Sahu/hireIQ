@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from uuid import UUID
 
 from sqlalchemy import exists, func, or_, select
@@ -21,6 +22,13 @@ from app.schemas.candidate import (
     CandidateSearchResult,
 )
 from app.schemas.common import PaginatedResponse, PaginationParams
+from app.services.storage import R2ResumeStorageService
+
+
+async def _maybe_await(value: object) -> object:
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 def _to_candidate_response(candidate: Candidate) -> CandidateResponse:
@@ -43,27 +51,15 @@ class CandidateService:
         self.user = user
         self.embedding_service = EmbeddingService()
         self.resume_parser = ResumeParser()
+        self.storage_service = R2ResumeStorageService()
 
     async def create_candidate(self, payload: CandidateCreate) -> CandidateResponse:
-        existing = await self.db.scalar(
-            select(Candidate).where(func.lower(Candidate.email) == payload.email.lower())
-        )
-        if existing is not None:
-            raise ConflictException("A candidate with this email already exists")
-
-        candidate = Candidate(
-            name=payload.name.strip(),
-            email=payload.email.lower(),
+        candidate = await self._create_candidate_model(
+            name=payload.name,
+            email=payload.email,
             linkedin_url=payload.linkedin_url,
             resume_text=payload.resume_text,
-            resume_embedding=(
-                await self.embedding_service.embed_text(payload.resume_text)
-                if payload.resume_text
-                else None
-            ),
         )
-        self.db.add(candidate)
-        await self.db.flush()
         return _to_candidate_response(candidate)
 
     async def create_candidate_from_pdf(
@@ -75,18 +71,44 @@ class CandidateService:
         filename: str,
         file_bytes: bytes,
     ) -> CandidateResponse:
-        """Parse a resume PDF and create a candidate from its extracted text."""
+        """Parse a resume PDF, store the original file, and create a candidate."""
         if not filename.lower().endswith(".pdf"):
             raise BadRequestException("Resume upload must be a PDF")
 
         resume_text = self.resume_parser.extract_text(file_bytes)
-        payload = CandidateCreate(
+        candidate = await self._create_candidate_model(
             name=name,
             email=email,
             linkedin_url=linkedin_url,
             resume_text=resume_text,
         )
-        return await self.create_candidate(payload)
+
+        upload_result = await _maybe_await(
+            self.storage_service.upload_resume(
+                company_id=self.user.company_id,
+                filename=filename,
+                file_bytes=file_bytes,
+            )
+        )
+        if isinstance(upload_result, dict) and upload_result.get("storage_key"):
+            candidate.resume_storage_key = str(upload_result["storage_key"])
+            candidate.resume_file_url = f"/api/v1/candidates/{candidate.id}/resume"
+            await self.db.flush()
+
+        return _to_candidate_response(candidate)
+
+    async def get_candidate_resume(self, candidate_id: UUID) -> dict[str, object]:
+        """Return stored resume bytes and metadata for download."""
+        candidate = await self.get_candidate(candidate_id)
+        if not candidate.resume_storage_key:
+            raise NotFoundException("Resume", str(candidate_id))
+
+        payload = await _maybe_await(
+            self.storage_service.download_resume(candidate.resume_storage_key)
+        )
+        if not isinstance(payload, dict):
+            raise NotFoundException("Resume", str(candidate_id))
+        return payload
 
     async def list_candidates(
         self,
@@ -197,3 +219,34 @@ class CandidateService:
             )
             for candidate, score in result.all()
         ]
+
+    async def _create_candidate_model(
+        self,
+        *,
+        name: str,
+        email: str,
+        linkedin_url: str | None,
+        resume_text: str | None,
+    ) -> Candidate:
+        await self._ensure_email_is_available(email)
+        candidate = Candidate(
+            name=name.strip(),
+            email=email.lower(),
+            linkedin_url=linkedin_url,
+            resume_text=resume_text,
+            resume_embedding=(
+                await self.embedding_service.embed_text(resume_text)
+                if resume_text
+                else None
+            ),
+        )
+        self.db.add(candidate)
+        await self.db.flush()
+        return candidate
+
+    async def _ensure_email_is_available(self, email: str) -> None:
+        existing = await self.db.scalar(
+            select(Candidate).where(func.lower(Candidate.email) == email.lower())
+        )
+        if existing is not None:
+            raise ConflictException("A candidate with this email already exists")

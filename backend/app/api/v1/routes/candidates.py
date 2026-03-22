@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, UploadFile
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import Response
 
 from app.api.dependencies import CurrentUser, DBSession, Pagination
 from app.core.exceptions import BadRequestException
@@ -17,8 +18,8 @@ from app.schemas.candidate import (
 )
 from app.schemas.common import APIResponse, PaginatedResponse
 from app.schemas.job import SimilarJobResult
-from app.services.jobs import JobService
 from app.services.candidates import CandidateService
+from app.services.jobs import JobService
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
 
@@ -83,6 +84,21 @@ async def similar_jobs_for_candidate(
     candidate = await CandidateService(db, current_user).get_candidate(candidate_id)
     data = await JobService(db, current_user).find_similar_jobs_for_candidate(candidate)
     return APIResponse(data=data)
+
+
+@router.get("/{candidate_id}/resume")
+async def download_candidate_resume(
+    candidate_id: UUID,
+    db: DBSession,
+    current_user: CurrentUser,
+) -> Response:
+    payload = await CandidateService(db, current_user).get_candidate_resume(candidate_id)
+    filename = str(payload.get("filename", "resume.pdf"))
+    return Response(
+        content=payload["file_bytes"],
+        media_type=str(payload.get("content_type", "application/pdf")),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.get("/{candidate_id}", response_model=APIResponse[CandidateDetailResponse])

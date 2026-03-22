@@ -315,7 +315,9 @@ export default function CandidatesPage() {
                 onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
               />
             )}
-            <Button type="submit">Save candidate</Button>
+            <Button data-testid="candidate-save" type="submit">
+              Save candidate
+            </Button>
           </form>
         </Card>
       </section>
@@ -338,6 +340,11 @@ export default function CandidatesPage() {
                 </p>
               </div>
               <Badge>{selectedCandidate.has_embedding ? "Embedded" : "Pending embed"}</Badge>
+              {selectedCandidate.resume_file_url ? (
+                <p className="text-sm text-[color:var(--muted)]">
+                  Original resume stored in backend resume storage.
+                </p>
+              ) : null}
             </div>
           ) : (
             <p className="mt-4 text-sm text-[color:var(--muted)]">

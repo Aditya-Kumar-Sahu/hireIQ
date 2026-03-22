@@ -31,7 +31,7 @@ export default function JobsPage() {
       try {
         const [jobsResponse, applicationsResponse] = await Promise.all([
           listJobs(token, { limit: 100 }),
-          listApplications(token, { limit: 200 }),
+          listApplications(token, { limit: 100 }),
         ]);
         if (!cancelled) {
           setJobs(jobsResponse.items);

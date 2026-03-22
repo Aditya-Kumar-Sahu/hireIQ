@@ -50,8 +50,8 @@ export default function JobDetailPage() {
       try {
         const [jobData, applicationData, candidateData] = await Promise.all([
           getJob(token, resolvedJobId),
-          listApplications(token, { job_id: resolvedJobId, limit: 200 }),
-          listCandidates(token, { limit: 200 }),
+          listApplications(token, { job_id: resolvedJobId, limit: 100 }),
+          listCandidates(token, { limit: 100 }),
         ]);
         if (!cancelled) {
           setJob(jobData);
@@ -196,7 +196,7 @@ export default function JobDetailPage() {
                 </p>
               ) : null}
               <div className="mt-4 flex flex-wrap gap-3">
-                <Button disabled={!selectedCandidateId} type="submit">
+                <Button data-testid="application-create-submit" disabled={!selectedCandidateId} type="submit">
                   Create application
                 </Button>
                 <Link href="/candidates">

@@ -43,30 +43,39 @@ class ResendEmailService:
                 "subject": subject,
             }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "from": self.from_email,
-                    "to": [to_email],
-                    "subject": subject,
-                    "html": html,
-                },
-            )
-            response.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={
+                        "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "from": self.from_email,
+                        "to": [to_email],
+                        "subject": subject,
+                        "html": html,
+                    },
+                )
+                response.raise_for_status()
 
-        payload = response.json()
-        return {
-            "mode": "live",
-            "email_id": payload.get("id"),
-            "to_email": to_email,
-            "from_email": self.from_email,
-            "subject": subject,
-        }
+            payload = response.json()
+            return {
+                "mode": "live",
+                "email_id": payload.get("id"),
+                "to_email": to_email,
+                "from_email": self.from_email,
+                "subject": subject,
+            }
+        except Exception:
+            return {
+                "mode": "preview",
+                "email_id": None,
+                "to_email": to_email,
+                "from_email": self.from_email,
+                "subject": subject,
+            }
 
     @staticmethod
     def render_interview_email(

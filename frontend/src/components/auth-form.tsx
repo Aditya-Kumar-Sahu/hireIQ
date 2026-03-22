@@ -94,7 +94,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             {error}
           </p>
         ) : null}
-        <Button className="w-full" disabled={loading} type="submit">
+        <Button className="w-full" data-testid="auth-submit" disabled={loading} type="submit">
           {loading
             ? "Working..."
             : mode === "signup"

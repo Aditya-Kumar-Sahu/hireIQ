@@ -5,6 +5,8 @@ import type {
   Candidate,
   CandidateDetail,
   CandidateSearchResult,
+  GoogleCalendarAuthorization,
+  GoogleCalendarConnection,
   IntegrationStatus,
   Job,
   PaginatedResponse,
@@ -78,6 +80,19 @@ export function getMe(token: string | null) {
 
 export function getIntegrations(token: string | null) {
   return request<IntegrationStatus>("/api/v1/meta/integrations", { token });
+}
+
+export function getGoogleCalendarAuthorizationUrl(token: string | null) {
+  return request<GoogleCalendarAuthorization>("/api/v1/integrations/google-calendar/authorize", {
+    token,
+  });
+}
+
+export function disconnectGoogleCalendar(token: string | null) {
+  return request<GoogleCalendarConnection>("/api/v1/integrations/google-calendar/connection", {
+    token,
+    method: "DELETE",
+  });
 }
 
 export function listJobs(token: string | null, searchParams?: { status?: string; page?: number; limit?: number }) {

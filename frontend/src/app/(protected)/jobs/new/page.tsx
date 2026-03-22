@@ -95,7 +95,7 @@ export default function NewJobPage() {
             </p>
           ) : null}
           <div className="flex flex-wrap gap-3">
-            <Button disabled={loading} type="submit">
+            <Button data-testid="job-create-submit" disabled={loading} type="submit">
               {loading ? "Creating..." : "Create job"}
             </Button>
             <Button type="button" variant="secondary" onClick={() => router.back()}>

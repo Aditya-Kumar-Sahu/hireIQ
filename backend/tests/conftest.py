@@ -51,7 +51,7 @@ async def reset_database(db_session_factory: async_sessionmaker[AsyncSession]) -
         await session.execute(
             text(
                 "TRUNCATE TABLE "
-                "agent_runs, applications, users, jobs, candidates, companies "
+                "ats_webhook_events, agent_runs, applications, users, jobs, candidates, companies "
                 "RESTART IDENTITY CASCADE"
             )
         )

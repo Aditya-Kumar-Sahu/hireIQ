@@ -1,9 +1,4 @@
-"""
-Company ORM model.
-
-Represents a hiring organisation within the platform.
-Companies own jobs and employ recruiters (users).
-"""
+"""Company ORM model."""
 
 from __future__ import annotations
 
@@ -30,13 +25,26 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     industry: Mapped[str | None] = mapped_column(String(255), nullable=True)
     culture_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_calendar_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_calendar_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_calendar_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    google_calendar_connected_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    google_calendar_calendar_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
-    # ── Relationships ──────────────────────────────────────────────
     jobs: Mapped[list["Job"]] = relationship(  # noqa: F821
         "Job",
         back_populates="company",

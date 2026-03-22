@@ -241,7 +241,12 @@ def test_integration_status_endpoint_is_authenticated_and_shaped(client: TestCli
     assert set(payload.keys()) == {
         "openai_enabled",
         "google_calendar_enabled",
+        "google_calendar_connected_email",
         "resend_enabled",
+        "r2_enabled",
+        "resume_storage_enabled",
+        "ats_webhooks_enabled",
+        "ats_webhook_url",
         "sse_enabled",
     }
     assert payload["sse_enabled"] is True

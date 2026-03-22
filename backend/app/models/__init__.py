@@ -1,12 +1,8 @@
-"""
-Models package — import all ORM models here for Alembic discovery.
-
-Alembic's env.py imports Base.metadata, and these imports ensure
-all models are registered on the metadata before autogenerate runs.
-"""
+"""Models package for Alembic discovery."""
 
 from app.models.agent_run import AgentName, AgentRun, AgentRunStatus
 from app.models.application import Application, ApplicationStatus
+from app.models.ats_webhook_event import ATSWebhookEvent
 from app.models.candidate import Candidate
 from app.models.company import Company
 from app.models.job import Job, JobSeniority, JobStatus
@@ -18,6 +14,7 @@ __all__ = [
     "AgentRunStatus",
     "Application",
     "ApplicationStatus",
+    "ATSWebhookEvent",
     "Candidate",
     "Company",
     "Job",

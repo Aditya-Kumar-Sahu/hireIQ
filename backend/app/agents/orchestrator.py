@@ -28,7 +28,6 @@ class ApplicationOrchestrator:
         self.db = db
         self.progress = ApplicationProgressService()
         self.runner = CrewAIPipelineRunner()
-        self.calendar = GoogleCalendarService()
         self.email = ResendEmailService()
         self.screening = ScreeningInsightsService(db)
 
@@ -45,6 +44,8 @@ class ApplicationOrchestrator:
         )
         if application is None:
             return
+
+        self.calendar = GoogleCalendarService(db=self.db, company=application.job.company)
 
         await self.progress.publish(
             application.id,

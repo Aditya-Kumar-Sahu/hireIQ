@@ -1,9 +1,4 @@
-"""
-Candidate ORM model.
-
-Represents a job applicant. Includes a vector embedding of their resume
-for semantic similarity search via pgvector.
-"""
+"""Candidate ORM model."""
 
 from __future__ import annotations
 
@@ -39,13 +34,13 @@ class Candidate(Base):
     resume_embedding = mapped_column(Vector(1536), nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     resume_file_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resume_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
-    # ── Relationships ──────────────────────────────────────────────
     applications: Mapped[list["Application"]] = relationship(  # noqa: F821
         "Application",
         back_populates="candidate",
