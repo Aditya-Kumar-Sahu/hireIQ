@@ -116,7 +116,9 @@ def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
         headers=headers,
     )
     assert application_detail.status_code == 200
-    assert application_detail.json()["data"]["agent_runs"] == []
+    detail_payload = application_detail.json()["data"]
+    assert detail_payload["status"] == "offered"
+    assert len(detail_payload["agent_runs"]) == 4
 
     update_status = client.patch(
         f"/api/v1/applications/{application_payload['id']}/status",

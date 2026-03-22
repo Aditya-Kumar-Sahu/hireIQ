@@ -28,6 +28,7 @@ from app.schemas.candidate import (
 )
 from app.schemas.common import APIResponse, PaginatedResponse, PaginationParams
 from app.schemas.job import JobCreate, JobListResponse, JobResponse, JobUpdate
+from app.schemas.job import SimilarJobResult
 
 __all__ = [
     "APIResponse",
@@ -52,6 +53,7 @@ __all__ = [
     "PaginatedResponse",
     "PaginationParams",
     "ScheduleRequest",
+    "SimilarJobResult",
     "SignupRequest",
     "TokenResponse",
     "UserResponse",

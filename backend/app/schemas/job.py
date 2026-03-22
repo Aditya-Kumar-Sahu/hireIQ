@@ -47,6 +47,13 @@ class JobResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SimilarJobResult(BaseModel):
+    """Job with a similarity score from vector search."""
+
+    job: JobResponse
+    similarity_score: float
+
+
 class JobListResponse(BaseModel):
     """Paginated job list response."""
 

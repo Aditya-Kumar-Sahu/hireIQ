@@ -7,11 +7,12 @@ from uuid import UUID
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictException, NotFoundException
+from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
 from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.user import User
+from app.rag import ResumeParser
 from app.rag.embeddings import EmbeddingService
 from app.schemas.candidate import (
     CandidateCreate,
@@ -41,6 +42,7 @@ class CandidateService:
         self.db = db
         self.user = user
         self.embedding_service = EmbeddingService()
+        self.resume_parser = ResumeParser()
 
     async def create_candidate(self, payload: CandidateCreate) -> CandidateResponse:
         existing = await self.db.scalar(
@@ -63,6 +65,28 @@ class CandidateService:
         self.db.add(candidate)
         await self.db.flush()
         return _to_candidate_response(candidate)
+
+    async def create_candidate_from_pdf(
+        self,
+        *,
+        name: str,
+        email: str,
+        linkedin_url: str | None,
+        filename: str,
+        file_bytes: bytes,
+    ) -> CandidateResponse:
+        """Parse a resume PDF and create a candidate from its extracted text."""
+        if not filename.lower().endswith(".pdf"):
+            raise BadRequestException("Resume upload must be a PDF")
+
+        resume_text = self.resume_parser.extract_text(file_bytes)
+        payload = CandidateCreate(
+            name=name,
+            email=email,
+            linkedin_url=linkedin_url,
+            resume_text=resume_text,
+        )
+        return await self.create_candidate(payload)
 
     async def list_candidates(
         self,

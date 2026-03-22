@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictException, NotFoundException
+from app.models.agent_run import AgentRun
 from app.models.application import Application, ApplicationStatus
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -102,7 +103,11 @@ class ApplicationService:
         application = await self.db.scalar(
             select(Application)
             .join(Job, Job.id == Application.job_id)
-            .options(selectinload(Application.agent_runs))
+            .options(
+                selectinload(Application.agent_runs),
+                selectinload(Application.job).selectinload(Job.company),
+                selectinload(Application.candidate),
+            )
             .where(Application.id == application_id, Job.company_id == self.user.company_id)
         )
         if application is None:

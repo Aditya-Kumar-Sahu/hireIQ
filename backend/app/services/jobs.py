@@ -8,11 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.rag.embeddings import EmbeddingService
 from app.schemas.common import PaginatedResponse, PaginationParams
-from app.schemas.job import JobCreate, JobResponse, JobUpdate
+from app.schemas.job import JobCreate, JobResponse, JobUpdate, SimilarJobResult
 
 
 def _to_job_response(job: Job) -> JobResponse:
@@ -111,3 +112,26 @@ class JobService:
         job = await self.get_job(job_id)
         job.status = JobStatus.CLOSED
         await self.db.flush()
+
+    async def find_similar_jobs_for_candidate(self, candidate: Candidate) -> list[SimilarJobResult]:
+        """Return the most similar jobs in the user's company for a candidate embedding."""
+        if candidate.resume_embedding is None:
+            return []
+
+        similarity_score = (1 - Job.embedding.cosine_distance(candidate.resume_embedding)).label(
+            "similarity_score"
+        )
+        result = await self.db.execute(
+            select(Job, similarity_score)
+            .where(
+                Job.company_id == self.user.company_id,
+                Job.embedding.is_not(None),
+                Job.status != JobStatus.CLOSED,
+            )
+            .order_by(Job.embedding.cosine_distance(candidate.resume_embedding))
+            .limit(10)
+        )
+        return [
+            SimilarJobResult(job=_to_job_response(job), similarity_score=float(score))
+            for job, score in result.all()
+        ]
