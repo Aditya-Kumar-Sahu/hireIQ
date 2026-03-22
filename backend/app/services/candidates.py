@@ -12,6 +12,7 @@ from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.user import User
+from app.rag.embeddings import EmbeddingService
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateDetailResponse,
@@ -39,6 +40,7 @@ class CandidateService:
     def __init__(self, db: AsyncSession, user: User) -> None:
         self.db = db
         self.user = user
+        self.embedding_service = EmbeddingService()
 
     async def create_candidate(self, payload: CandidateCreate) -> CandidateResponse:
         existing = await self.db.scalar(
@@ -52,6 +54,11 @@ class CandidateService:
             email=payload.email.lower(),
             linkedin_url=payload.linkedin_url,
             resume_text=payload.resume_text,
+            resume_embedding=(
+                await self.embedding_service.embed_text(payload.resume_text)
+                if payload.resume_text
+                else None
+            ),
         )
         self.db.add(candidate)
         await self.db.flush()
@@ -135,8 +142,12 @@ class CandidateService:
         if not term:
             return []
 
-        result = await self.db.scalars(
-            select(Candidate)
+        query_embedding = await self.embedding_service.embed_text(term)
+        similarity_score = (1 - Candidate.resume_embedding.cosine_distance(query_embedding)).label(
+            "similarity_score"
+        )
+        result = await self.db.execute(
+            select(Candidate, similarity_score)
             .where(
                 or_(
                     ~Candidate.applications.any(),
@@ -149,20 +160,16 @@ class CandidateService:
                         )
                     ),
                 ),
-                or_(
-                    Candidate.name.ilike(f"%{term}%"),
-                    Candidate.email.ilike(f"%{term}%"),
-                    Candidate.resume_text.ilike(f"%{term}%"),
-                )
+                Candidate.resume_embedding.is_not(None),
             )
-            .order_by(Candidate.created_at.desc())
+            .order_by(Candidate.resume_embedding.cosine_distance(query_embedding))
             .limit(20)
         )
 
         return [
             CandidateSearchResult(
                 candidate=_to_candidate_response(candidate),
-                similarity_score=1.0,
+                similarity_score=float(score),
             )
-            for candidate in result.all()
+            for candidate, score in result.all()
         ]

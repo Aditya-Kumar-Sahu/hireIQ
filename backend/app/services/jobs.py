@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundException
 from app.models.job import Job, JobStatus
 from app.models.user import User
+from app.rag.embeddings import EmbeddingService
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
 
@@ -34,9 +35,25 @@ class JobService:
     def __init__(self, db: AsyncSession, user: User) -> None:
         self.db = db
         self.user = user
+        self.embedding_service = EmbeddingService()
+
+    @staticmethod
+    def build_embedding_text(title: str, description: str, requirements: str) -> str:
+        """Build the canonical text used for job embeddings."""
+        return "\n".join([title.strip(), description.strip(), requirements.strip()])
 
     async def create_job(self, payload: JobCreate) -> JobResponse:
-        job = Job(company_id=self.user.company_id, **payload.model_dump())
+        job = Job(
+            company_id=self.user.company_id,
+            embedding=await self.embedding_service.embed_job_text(
+                self.build_embedding_text(
+                    payload.title,
+                    payload.description,
+                    payload.requirements,
+                )
+            ),
+            **payload.model_dump(),
+        )
         self.db.add(job)
         await self.db.flush()
         return _to_job_response(job)
@@ -80,8 +97,13 @@ class JobService:
 
     async def update_job(self, job_id: UUID, payload: JobUpdate) -> JobResponse:
         job = await self.get_job(job_id)
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        update_data = payload.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
             setattr(job, field, value)
+        if {"title", "description", "requirements"} & set(update_data):
+            job.embedding = await self.embedding_service.embed_job_text(
+                self.build_embedding_text(job.title, job.description, job.requirements)
+            )
         await self.db.flush()
         return _to_job_response(job)
 

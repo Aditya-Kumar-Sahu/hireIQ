@@ -169,6 +169,62 @@ def test_duplicate_application_is_rejected(client: TestClient) -> None:
     assert "already applied" in second_response.json()["error"]
 
 
+def test_job_update_soft_delete_and_status_filtering(client: TestClient) -> None:
+    """Jobs can be updated, soft-deleted, and filtered by status."""
+    token = _signup_and_authenticate(client, "jobs@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created_job = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "title": "Frontend Engineer",
+            "description": "Build polished recruiter experiences.",
+            "requirements": "React Next.js TypeScript testing",
+            "seniority": "mid",
+        },
+    ).json()["data"]
+
+    updated_job = client.put(
+        f"/api/v1/jobs/{created_job['id']}",
+        headers=headers,
+        json={"status": "active", "title": "Senior Frontend Engineer"},
+    )
+    assert updated_job.status_code == 200
+    assert updated_job.json()["data"]["status"] == "active"
+    assert updated_job.json()["data"]["title"] == "Senior Frontend Engineer"
+
+    active_jobs = client.get("/api/v1/jobs?page=1&limit=10&status=active", headers=headers)
+    assert active_jobs.status_code == 200
+    assert active_jobs.json()["data"]["total"] == 1
+
+    deleted = client.delete(f"/api/v1/jobs/{created_job['id']}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["data"]["deleted"] is True
+
+    closed_jobs = client.get("/api/v1/jobs?page=1&limit=10&status=closed", headers=headers)
+    assert closed_jobs.status_code == 200
+    assert closed_jobs.json()["data"]["items"][0]["status"] == "closed"
+
+
+def test_validation_errors_use_standard_envelope(client: TestClient) -> None:
+    """Request validation failures stay inside the shared API envelope."""
+    response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "a",
+            "password": "short",
+            "company_name": "",
+        },
+    )
+
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["data"] is None
+    assert "password" in payload["error"]
+
+
 def test_protected_endpoints_require_authentication(client: TestClient) -> None:
     """Protected endpoints reject missing credentials."""
     response = client.get("/api/v1/jobs?page=1&limit=10")
