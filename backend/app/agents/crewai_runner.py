@@ -79,7 +79,7 @@ class AgentTaskResult(BaseModel):
 class CrewAIPipelineRunner:
     """Build and execute real CrewAI agents, with a safe deterministic fallback."""
 
-    model = "gpt-4o-mini"
+    model = "gemini/gemini-2.0-flash"
 
     def build_agents(self, context: PipelineContext) -> dict[AgentName, Agent]:
         """Return the four CrewAI agents used in the application pipeline."""
@@ -233,13 +233,13 @@ class CrewAIPipelineRunner:
         """Return the configured CrewAI LLM, or None when local fallback should be used."""
         from app.core.config import settings
 
-        if not settings.OPENAI_API_KEY:
+        if not settings.resolved_gemini_api_key:
             return None
         return LLM(
-            model=self.model,
-            api_key=settings.OPENAI_API_KEY,
+            model=settings.GEMINI_MODEL or self.model,
+            api_key=settings.resolved_gemini_api_key,
             temperature=0,
-            response_format={"type": "json_object"},
+            response_format={"type": "json"},
         )
 
     def _fallback_output(self, agent_name: AgentName, context: PipelineContext) -> dict[str, object]:

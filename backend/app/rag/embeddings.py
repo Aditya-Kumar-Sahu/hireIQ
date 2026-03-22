@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from statistics import mean
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 from app.core.config import settings
 from app.core.redis import redis_client
@@ -15,13 +17,17 @@ from app.core.redis import redis_client
 class EmbeddingService:
     """Generate and cache embeddings for jobs, resumes, and search queries."""
 
-    model = "text-embedding-3-small"
-    dimension = 1536
+    model = settings.GEMINI_EMBEDDING_MODEL
+    dimension = settings.GEMINI_EMBEDDING_DIMENSION
     cache_ttl_seconds = 60 * 60 * 24
 
     def __init__(self) -> None:
         self.redis = redis_client
-        self._client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
+        self._client = (
+            genai.Client(api_key=settings.resolved_gemini_api_key)
+            if settings.resolved_gemini_api_key
+            else None
+        )
 
     @staticmethod
     def normalize_text(text: str) -> str:
@@ -67,8 +73,7 @@ class EmbeddingService:
             return json.loads(cached)
 
         if self._client is not None:
-            response = await self._client.embeddings.create(model=self.model, input=normalized)
-            embedding = list(response.data[0].embedding)
+            embedding = await asyncio.to_thread(self._remote_embed, normalized)
         else:
             embedding = self._local_embedding(normalized)
 
@@ -83,8 +88,22 @@ class EmbeddingService:
         embeddings = [await self.embed_text(chunk) for chunk in chunks]
         return [mean(values) for values in zip(*embeddings, strict=True)]
 
+    def _remote_embed(self, text: str) -> list[float]:
+        """Generate a Gemini embedding with the configured output dimensionality."""
+        assert self._client is not None
+        response = self._client.models.embed_content(
+            model=self.model,
+            contents=text,
+            config=types.EmbedContentConfig(
+                task_type="SEMANTIC_SIMILARITY",
+                output_dimensionality=self.dimension,
+            ),
+        )
+        [embedding] = response.embeddings
+        return list(embedding.values)
+
     def _local_embedding(self, text: str) -> list[float]:
-        """Produce a deterministic local embedding when OpenAI is unavailable."""
+        """Produce a deterministic local embedding when Gemini is unavailable."""
         vector = [0.0] * self.dimension
         tokens = self.normalize_text(text).lower().split()
         if not tokens:

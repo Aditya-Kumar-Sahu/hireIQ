@@ -29,7 +29,7 @@ async def get_integrations(
     storage = R2ResumeStorageService()
     ats = ATSWebhookService(db)
     data = IntegrationStatusResponse(
-        openai_enabled=bool(settings.OPENAI_API_KEY),
+        gemini_enabled=bool(settings.resolved_gemini_api_key),
         google_calendar_enabled=calendar.is_configured(),
         google_calendar_connected_email=(
             company.google_calendar_connected_email if company is not None else None

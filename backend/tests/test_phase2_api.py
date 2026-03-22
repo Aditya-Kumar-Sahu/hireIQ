@@ -239,7 +239,7 @@ def test_integration_status_endpoint_is_authenticated_and_shaped(client: TestCli
     assert response.status_code == 200
     payload = response.json()["data"]
     assert set(payload.keys()) == {
-        "openai_enabled",
+        "gemini_enabled",
         "google_calendar_enabled",
         "google_calendar_connected_email",
         "resend_enabled",

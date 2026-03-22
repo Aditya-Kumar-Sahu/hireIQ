@@ -26,6 +26,7 @@ SKILL_ALIASES: dict[str, tuple[str, ...]] = {
     "Kubernetes": ("kubernetes", "k8s"),
     "CrewAI": ("crewai",),
     "OpenAI": ("openai",),
+    "Gemini": ("gemini", "google genai", "google ai studio"),
     "Next.js": ("next.js", "nextjs"),
 }
 

@@ -70,8 +70,8 @@
 | **Database**         | PostgreSQL 16 + pgvector         | Embeddings co-located with relational data — single DB, better joins, no extra infra vs Pinecone        |
 | **Vector Search**    | pgvector (HNSW index)            | Sub-millisecond approximate nearest-neighbour search on embeddings; no external vector DB required      |
 | **AI Orchestration** | CrewAI                           | Role-based agent design maps naturally to hiring personas; cleaner collaboration model than LangChain   |
-| **LLM**             | OpenAI GPT-4o                    | Best-in-class reasoning for screening, assessment generation, and offer writing                         |
-| **Embeddings**       | OpenAI `text-embedding-3-small`  | Cost-efficient 1536-dim embeddings; excellent semantic similarity performance                            |
+| **LLM**             | Google Gemini                    | Structured reasoning for screening, assessment generation, and offer writing through CrewAI             |
+| **Embeddings**       | Gemini `gemini-embedding-001`    | Flexible embedding dimensions with a 1536-dim deployment profile that fits the current pgvector schema  |
 | **Job Queue**        | Redis (via `redis-py`)           | Async agent execution queue; prevents request timeouts on long-running LLM chains; embedding cache TTL  |
 | **Auth**             | JWT (HS256)                      | Stateless token auth; simple, secure, no session store overhead                                         |
 | **Email**            | Resend API                       | Developer-friendly transactional email; great deliverability, simple SDK                                |
@@ -115,7 +115,7 @@ flowchart TB
     end
 
     subgraph External["External Services"]
-        OAI["OpenAI API"]
+        Gemini["Google Gemini API"]
         GCal["Google Calendar"]
         Resend["Resend Email"]
     end
@@ -125,11 +125,11 @@ flowchart TB
     API --> Auth
     API --> BG
     BG --> Agents
-    A1 --> OAI
-    A2 --> OAI
+    A1 --> Gemini
+    A2 --> Gemini
     A3 --> GCal
     A3 --> Resend
-    A4 --> OAI
+    A4 --> Gemini
     Agents --> PG
     Agents --> RD
     API --> PG
@@ -141,13 +141,13 @@ flowchart TB
 
 ```
 1. Recruiter uploads resume PDF → R2 storage
-2. PyMuPDF extracts text → OpenAI embeds resume → pgvector stores embedding
+2. PyMuPDF extracts text ??? Gemini embeds resume ??? pgvector stores embedding
 3. POST /api/v1/applications triggers background task
 4. CrewAI Orchestrator runs agents sequentially:
-   ├── CV Screener  → cosine similarity + GPT-4o analysis → score, skills, recommendation
-   ├── Assessor     → GPT-4o generates role-specific questions → assessment
+   ????????? CV Screener  ??? cosine similarity + Gemini analysis ??? score, skills, recommendation
+   ????????? Assessor     ??? Gemini generates role-specific questions ??? assessment
    ├── Scheduler    → Google Calendar API → proposed slots + email draft
-   └── Offer Writer → GPT-4o + company context (RAG) → personalised offer letter
+   ????????? Offer Writer ??? Gemini + company context (RAG) ??? personalised offer letter
 5. Each agent's output written to `agent_runs` table
 6. SSE pushes real-time status to the browser (pending → running → complete)
 7. Application status updated to reflect pipeline completion
@@ -392,7 +392,7 @@ HireIQ uses Retrieval-Augmented Generation (RAG) to ground agent decisions in re
 
 ```
                   ┌─────────────┐
-  Job Description │  Chunking   │  → OpenAI text-embedding-3-small → pgvector INSERT
+  Job Description ???  Chunking   ???  ??? Gemini gemini-embedding-001 ??? pgvector INSERT
   Resume Text     │  (optional) │      (1536 dimensions)               (HNSW index)
   Culture Notes   │             │
                   └─────────────┘
@@ -413,7 +413,7 @@ HireIQ uses Retrieval-Augmented Generation (RAG) to ground agent decisions in re
 
 ### Caching Strategy
 
-- **Redis TTL cache (24h)**: Before calling OpenAI's embedding API, compute a SHA-256 hash of the input text. Check Redis for a cached embedding. On miss, call the API and cache the result. This eliminates redundant embedding calls for identical text.
+- **Redis TTL cache (24h)**: Before calling Gemini's embedding API, compute a SHA-256 hash of the input text. Check Redis for a cached embedding. On miss, call the API and cache the result. This eliminates redundant embedding calls for identical text.
 
 ### Vector Index Configuration
 
@@ -498,7 +498,7 @@ WITH (m = 16, ef_construction = 64);
 
 | Task                                          | Details                                                                          |
 | --------------------------------------------- | -------------------------------------------------------------------------------- |
-| OpenAI embeddings service                     | Async client, SHA-256 cache check, Redis caching                                |
+| Gemini embeddings service                     | Google GenAI client, SHA-256 cache check, Redis caching                         |
 | pgvector extension setup                      | `CREATE EXTENSION vector` in migration, HNSW indexes                             |
 | Resume parsing                                | PyMuPDF text extraction, cleaning, chunking utility                              |
 | Embedding pipeline                            | Auto-embed on job creation and candidate upload                                  |
@@ -610,7 +610,7 @@ hireiq/
 │   │   │   └── agent_pipeline.py      # Orchestrates the full agent run
 │   │   ├── rag/
 │   │   │   ├── __init__.py
-│   │   │   ├── embeddings.py          # OpenAI embedding client + Redis cache
+???   ???   ???   ????????? embeddings.py          # Gemini embedding client + Redis cache
 │   │   │   ├── chunker.py            # Text chunking utility
 │   │   │   └── retriever.py          # Similarity search queries
 │   │   ├── core/
@@ -719,9 +719,13 @@ hireiq/
 
 ```bash
 # ──────────────────────────────────────
-# OpenAI
+# Gemini
 # ──────────────────────────────────────
-OPENAI_API_KEY=                       # Your OpenAI API key for GPT-4o and embeddings
+GEMINI_API_KEY=                       # Preferred Gemini API key for CrewAI + embeddings
+GOOGLE_API_KEY=                       # Optional alternate env var accepted by Google tooling
+GEMINI_MODEL=gemini/gemini-2.0-flash
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+GEMINI_EMBEDDING_DIMENSION=1536
 
 # ──────────────────────────────────────
 # Database
@@ -803,7 +807,7 @@ Pinecone would be overkill for this use case and would add operational complexit
 ### Why Redis?
 
 Redis serves dual purpose:
-1. **Embedding cache**: SHA-256 hashed text → embedding vector, TTL 24h. Prevents duplicate OpenAI API calls.
+1. **Embedding cache**: SHA-256 hashed text ??? embedding vector, TTL 24h. Prevents duplicate Gemini API calls.
 2. **Future-proof job queue**: while Phase 4 uses FastAPI's `BackgroundTasks` for simplicity, Redis enables a seamless upgrade to Celery/RQ if agent workloads demand true distributed task processing.
 
 ---
@@ -847,7 +851,7 @@ Open the PostgreSQL console (or pgAdmin). Show:
 
 | Priority | Goal                     | Description                                                                                                    |
 | -------- | ------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| P1       | **Fine-tuning**          | Fine-tune GPT-4o-mini on the company's historical screening decisions to improve scoring accuracy over time     |
+| P1       | **Fine-tuning**          | Fine-tune Gemini screening prompts on the company's historical decisions to improve scoring accuracy over time   |
 | P1       | **Analytics Dashboard**  | Track offer acceptance rate, time-to-hire, cost-per-agent-run, agent accuracy vs human reviewer agreement       |
 | P2       | **Bias Detection Agent** | Fifth agent that reviews screening outputs for potentially biased language or criteria before surfacing results |
 | P2       | **Multi-Tenant**         | Full tenant isolation with row-level security in PostgreSQL, company-scoped JWT claims                         |

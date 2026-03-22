@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class IntegrationStatusResponse(BaseModel):
     """Expose whether key integrations are configured on the backend."""
 
-    openai_enabled: bool
+    gemini_enabled: bool
     google_calendar_enabled: bool
     google_calendar_connected_email: str | None = None
     resend_enabled: bool

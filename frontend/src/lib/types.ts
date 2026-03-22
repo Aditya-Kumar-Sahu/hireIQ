@@ -126,7 +126,7 @@ export type TokenResponse = {
 };
 
 export type IntegrationStatus = {
-  openai_enabled: boolean;
+  gemini_enabled: boolean;
   google_calendar_enabled: boolean;
   google_calendar_connected_email: string | null;
   resend_enabled: boolean;

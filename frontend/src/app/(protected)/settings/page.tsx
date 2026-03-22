@@ -198,9 +198,9 @@ export default function SettingsPage() {
 
             {[
               {
-                label: "OpenAI reasoning + embeddings",
-                enabled: integrationStatus?.openai_enabled ?? false,
-                detail: "Screening and semantic ranking will automatically fall back when the key is absent.",
+                label: "Google Gemini reasoning + embeddings",
+                enabled: integrationStatus?.gemini_enabled ?? false,
+                detail: "Screening and semantic ranking automatically fall back when the Gemini key is absent.",
               },
               {
                 label: "Resend outbound email",

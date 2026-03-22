@@ -29,7 +29,11 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini/gemini-2.0-flash"
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    GEMINI_EMBEDDING_DIMENSION: int = 1536
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
@@ -57,6 +61,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @property
+    def resolved_gemini_api_key(self) -> str:
+        """Return the Gemini API key, accepting Google's alternate env var too."""
+        return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
 
 
 settings = Settings()
