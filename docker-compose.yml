@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────────────────
+# HireIQ — Local Development Docker Compose
+# ─────────────────────────────────────────────────────────────────────
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose logs -f api    # tail backend logs
+#   docker compose down -v        # stop and remove volumes
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hireiq-api
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://hireiq:hireiq_secret@db:5432/hireiq
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hireiq-network
+
+  # ── PostgreSQL + pgvector ────────────────────────────────────────
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: hireiq-db
+    environment:
+      POSTGRES_USER: hireiq
+      POSTGRES_PASSWORD: hireiq_secret
+      POSTGRES_DB: hireiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hireiq -d hireiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hireiq-network
+
+  # ── Redis ────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hireiq-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hireiq-network
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+
+networks:
+  hireiq-network:
+    driver: bridge

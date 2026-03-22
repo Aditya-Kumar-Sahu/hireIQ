@@ -12,7 +12,6 @@
 
 [Live Demo →](#) · [Architecture](#3-high-level-architecture) · [API Docs](#5-api-endpoints-spec) · [Agent System](#6-crewai-agent-definitions) · [Screenshots](#)
 
-</div>
 
 ---
 
@@ -856,18 +855,3 @@ Open the PostgreSQL console (or pgAdmin). Show:
 | P3       | **n8n Integration**      | Automated workflow triggers from external ATS webhooks (Greenhouse, Lever, Workday)                            |
 | P3       | **Candidate Portal**     | Self-service portal where candidates can track their application status and submit assessments                  |
 | P3       | **Mobile App**           | React Native companion app for recruiters to review candidates on-the-go                                       |
-
----
-
-## License
-
-MIT
-
----
-
-<div align="center">
-
-**Built with 🧠 by a Senior AI Engineer who believes hiring should be intelligent, not tedious.**
-
-</div>
-]]>

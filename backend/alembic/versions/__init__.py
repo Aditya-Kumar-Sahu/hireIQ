@@ -1,0 +1,1 @@
+# HireIQ Alembic migration versions
