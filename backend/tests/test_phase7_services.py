@@ -9,11 +9,15 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
+import fitz
 import pytest
 from fastapi import Request
+from fastapi.testclient import TestClient
 
 from app.agents.crewai_runner import CrewAIPipelineRunner, PipelineContext
 from app.core.config import settings
+from app.core.exceptions import ServiceUnavailableException
+from app.rag.embeddings import EmbeddingService
 from app.services.ats_webhooks import ATSWebhookService
 from app.services.calendar import BusyWindow, GoogleCalendarService
 from app.services.email import ResendEmailService
@@ -217,10 +221,150 @@ def test_ats_webhook_signature_and_url_helpers(monkeypatch: pytest.MonkeyPatch) 
 def test_storage_service_slugifies_filename_and_prefers_custom_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     """R2 storage helpers should sanitize filenames and honor explicit endpoints."""
     monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "https://r2.example")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
     service = R2ResumeStorageService()
 
     assert service.endpoint_url == "https://r2.example"
     assert service._slugify_filename("Casey Candidate Resume (Final).pdf") == "Casey-Candidate-Resume-Final-.pdf"
+
+
+def test_storage_service_rejects_invalid_account_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R2 readiness should fail when the account id is not hostname-safe."""
+    monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "recruiter@example.com")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
+    service = R2ResumeStorageService()
+
+    assert service.is_configured() is False
+    assert "Cloudflare account ID" in str(service.configuration_error())
+
+
+@pytest.mark.asyncio
+async def test_storage_service_raises_on_runtime_upload_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configured R2 uploads should surface provider failures instead of failing silently."""
+    monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "https://example.r2.cloudflarestorage.com")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "abcdef123456")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
+    service = R2ResumeStorageService()
+
+    class FailingClient:
+        def put_object(self, **kwargs: object) -> None:
+            raise RuntimeError("tls handshake failed")
+
+    monkeypatch.setattr(service, "_client", lambda: FailingClient())
+
+    with pytest.raises(ServiceUnavailableException):
+        await service.upload_resume(
+            company_id=uuid4(),
+            filename="resume.pdf",
+            file_bytes=b"%PDF-1.4",
+        )
+
+
+@pytest.mark.asyncio
+async def test_storage_service_upload_and_download_round_trip_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The storage service should pass the expected bucket, key, and content metadata to boto3."""
+    monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "https://example.r2.cloudflarestorage.com")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "abcdef123456")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
+    service = R2ResumeStorageService()
+    captured: dict[str, object] = {}
+
+    class FakeBody:
+        def read(self) -> bytes:
+            return b"%PDF-1.4"
+
+    class FakeClient:
+        def put_object(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def get_object(self, **kwargs: object) -> dict[str, object]:
+            captured.update({f"download_{key}": value for key, value in kwargs.items()})
+            return {
+                "ContentType": "application/pdf",
+                "Body": FakeBody(),
+            }
+
+    monkeypatch.setattr(service, "_client", lambda: FakeClient())
+    upload = await service.upload_resume(
+        company_id=uuid4(),
+        filename="Casey Candidate Resume.pdf",
+        file_bytes=b"%PDF-1.4",
+    )
+
+    assert upload is not None
+    assert upload["content_type"] == "application/pdf"
+    assert str(upload["storage_key"]).startswith("companies/")
+    assert str(upload["storage_key"]).endswith("Casey-Candidate-Resume.pdf")
+    assert captured["Bucket"] == "hireiq-resumes"
+    assert captured["ContentType"] == "application/pdf"
+    assert captured["Body"] == b"%PDF-1.4"
+
+    download = await service.download_resume(str(upload["storage_key"]))
+
+    assert download["content_type"] == "application/pdf"
+    assert download["file_bytes"] == b"%PDF-1.4"
+    assert captured["download_Bucket"] == "hireiq-resumes"
+    assert captured["download_Key"] == upload["storage_key"]
+
+
+def test_pdf_candidate_upload_returns_503_when_r2_is_invalid(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multipart resume ingest should fail loudly when R2 is configured incorrectly."""
+
+    async def fake_embed_text(self: EmbeddingService, text: str) -> list[float]:
+        return [0.0] * 1536
+
+    monkeypatch.setattr(EmbeddingService, "embed_text", fake_embed_text)
+    monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "recruiter@example.com")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
+
+    signup = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "pdf-storage@example.com",
+            "password": "supersecure123",
+            "company_name": "Storage Co",
+        },
+    )
+    token = signup.json()["data"]["access_token"]
+
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Casey Candidate\nFastAPI Engineer")
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    response = client.post(
+        "/api/v1/candidates",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"resume": ("resume.pdf", pdf_bytes, "application/pdf")},
+        data={
+            "name": "Casey Candidate",
+            "email": "casey.storage@example.com",
+        },
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["success"] is False
+    assert "R2_ACCOUNT_ID" in payload["error"]
 
 
 def test_crewai_runner_parse_output_and_recommendation_logic() -> None:

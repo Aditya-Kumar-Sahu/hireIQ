@@ -54,3 +54,10 @@ class ConflictException(HireIQException):
 
     def __init__(self, message: str) -> None:
         super().__init__(message=message, status_code=409)
+
+
+class ServiceUnavailableException(HireIQException):
+    """Temporary integration or dependency failure (503)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message=message, status_code=503)

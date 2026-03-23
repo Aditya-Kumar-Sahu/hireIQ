@@ -21,6 +21,10 @@ os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6379/0")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["GOOGLE_API_KEY"] = ""
+os.environ["R2_ACCOUNT_ID"] = ""
+os.environ["R2_ACCESS_KEY_ID"] = ""
+os.environ["R2_SECRET_ACCESS_KEY"] = ""
+os.environ["R2_ENDPOINT_URL"] = ""
 
 from app.main import app  # noqa: E402
 
