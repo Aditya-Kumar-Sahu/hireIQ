@@ -37,6 +37,7 @@ class PipelineContext(BaseModel):
     similar_applications: list[dict[str, object]]
     recommendation: str = "review"
     scheduler_slots: list[str] = Field(default_factory=list)
+    compensation_details: str | None = None
     delivery_mode: str = "preview"
     from_email: str = "noreply@hireiq.dev"
 
@@ -255,7 +256,8 @@ class CrewAIPipelineRunner:
             )
         return Task(
             description=(
-                "Draft a personalized offer note for this candidate and role. "
+                "Draft a personalized offer note for this candidate and role. Use optional "
+                "compensation_details from context when available. "
                 "Return JSON with offer_text and summary."
             ),
             expected_output="Structured JSON offer draft.",
@@ -410,6 +412,7 @@ class CrewAIPipelineRunner:
             offer_text=(
                 f"{context.candidate_name}, we're excited to move you forward for the "
                 f"{context.job_title} role at {context.company_name}."
+                f"{f' Compensation details: {context.compensation_details}.' if context.compensation_details else ''}"
             ),
             summary="Personalized offer draft generated from role and screening context.",
         ).model_dump()

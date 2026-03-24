@@ -1,6 +1,8 @@
 import type {
   Application,
   ApplicationDetail,
+  DashboardActivityItem,
+  DashboardStats,
   AuthResponse,
   Candidate,
   CandidateDetail,
@@ -128,6 +130,17 @@ export function getIntegrations(token: string | null) {
   return request<IntegrationStatus>("/api/v1/meta/integrations", { token });
 }
 
+export function getDashboardStats(token: string | null) {
+  return request<DashboardStats>("/api/v1/dashboard/stats", { token });
+}
+
+export function getDashboardActivity(token: string | null, limit = 12) {
+  return request<DashboardActivityItem[]>("/api/v1/dashboard/activity", {
+    token,
+    searchParams: { limit },
+  });
+}
+
 export function getGoogleCalendarAuthorizationUrl(token: string | null) {
   return request<GoogleCalendarAuthorization>("/api/v1/integrations/google-calendar/authorize", {
     token,
@@ -234,6 +247,30 @@ export function updateApplicationStatus(token: string | null, applicationId: str
     token,
     method: "PATCH",
     body: { status },
+  });
+}
+
+export function rerunScheduler(
+  token: string | null,
+  applicationId: string,
+  input: { availability_slots: string[] },
+) {
+  return request(`/api/v1/applications/${applicationId}/schedule`, {
+    token,
+    method: "POST",
+    body: input,
+  });
+}
+
+export function rerunOfferWriter(
+  token: string | null,
+  applicationId: string,
+  input: { compensation_details?: string },
+) {
+  return request(`/api/v1/applications/${applicationId}/offer`, {
+    token,
+    method: "POST",
+    body: input,
   });
 }
 

@@ -1,62 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { ArrowRight, BriefcaseBusiness, Plus } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { getApiErrorMessage, listApplications, listJobs } from "@/lib/api";
-import type { Application, Job } from "@/lib/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useApplications } from "@/hooks/use-applications";
+import { useJobs } from "@/hooks/use-jobs";
+import { getApiErrorMessage } from "@/lib/api";
 import { titleCase } from "@/lib/utils";
 
 export default function JobsPage() {
   const { token } = useSession();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const jobsQuery = useJobs(token, { limit: 100 });
+  const applicationsQuery = useApplications(token, { limit: 100 });
 
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [jobsResponse, applicationsResponse] = await Promise.all([
-          listJobs(token, { limit: 100 }),
-          listApplications(token, { limit: 100 }),
-        ]);
-        if (!cancelled) {
-          setJobs(jobsResponse.items);
-          setApplications(applicationsResponse.items);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load jobs", {
-              401: "Your session expired. Please log in again.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const jobs = jobsQuery.data?.items ?? [];
+  const applications = applicationsQuery.data?.items ?? [];
+  const loading = jobsQuery.isLoading || applicationsQuery.isLoading;
+  const error = jobsQuery.error ?? applicationsQuery.error;
 
   return (
     <div className="space-y-8">
@@ -80,12 +45,28 @@ export default function JobsPage() {
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Unable to load jobs</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <CardDescription>
+            {getApiErrorMessage(error, "Unable to load jobs", {
+              401: "Your session expired. Please log in again.",
+            })}
+          </CardDescription>
         </Card>
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-[color:var(--muted)]">Loading jobs...</p>
+        <section className="grid gap-4 xl:grid-cols-2">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Card key={index}>
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="mt-4 h-10 w-64" />
+              <Skeleton className="mt-4 h-16 w-full" />
+              <div className="mt-6 flex gap-2">
+                <Skeleton className="h-7 w-20" />
+                <Skeleton className="h-7 w-24" />
+              </div>
+            </Card>
+          ))}
+        </section>
       ) : jobs.length === 0 ? (
         <Card>
           <CardTitle className="text-2xl">No jobs yet</CardTitle>

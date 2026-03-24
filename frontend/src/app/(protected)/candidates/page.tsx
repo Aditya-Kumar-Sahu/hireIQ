@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
@@ -8,34 +9,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { useCandidate, useCandidates, useCandidateSearch, useSimilarJobsForCandidate } from "@/hooks/use-candidates";
 import {
   createCandidate,
   createCandidateFromPdf,
   getApiErrorMessage,
-  getCandidate,
-  getSimilarJobsForCandidate,
-  listCandidates,
-  searchCandidates,
 } from "@/lib/api";
-import type { Candidate, CandidateDetail, CandidateSearchResult, SimilarJobResult } from "@/lib/types";
+import type { Candidate } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
 
+const EMPTY_CANDIDATES: Candidate[] = [];
+
 export default function CandidatesPage() {
+  const queryClient = useQueryClient();
   const { token } = useSession();
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [searchResults, setSearchResults] = useState<CandidateSearchResult[] | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
-  const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
-  const [similarJobs, setSimilarJobs] = useState<SimilarJobResult[]>([]);
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [queryInput, setQueryInput] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"text" | "pdf">("text");
-  const [searching, setSearching] = useState(false);
-  const [creatingCandidate, setCreatingCandidate] = useState(false);
   const [createStatusMessage, setCreateStatusMessage] = useState<string | null>(null);
-  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
   const [formState, setFormState] = useState({
     name: "",
     email: "",
@@ -44,115 +39,51 @@ export default function CandidatesPage() {
   });
   const [resumeFile, setResumeFile] = useState<File | null>(null);
 
+  const candidatesQuery = useCandidates(token, { limit: 100 });
+  const searchQuery = useCandidateSearch(token, submittedQuery, Boolean(submittedQuery));
+  const candidateQuery = useCandidate(token, selectedCandidateId || undefined);
+  const similarJobsQuery = useSimilarJobsForCandidate(token, selectedCandidateId || undefined);
+  const createCandidateMutation = useMutation({
+    mutationFn: (input: { name: string; email: string; linkedin_url?: string; resume_text?: string }) =>
+      createCandidate(token, input),
+  });
+  const createCandidateFromPdfMutation = useMutation({
+    mutationFn: (input: { name: string; email: string; linkedin_url?: string; resume: File }) =>
+      createCandidateFromPdf(token, input),
+  });
+
+  const candidates = candidatesQuery.data?.items ?? EMPTY_CANDIDATES;
+  const searching = searchQuery.isFetching;
+  const visibleCandidates: Candidate[] = submittedQuery
+    ? (searchQuery.data?.map((result) => result.candidate) ?? [])
+    : candidates;
+  const selectedCandidate = candidateQuery.data ?? null;
+  const similarJobs = similarJobsQuery.data ?? [];
+  const loading = candidatesQuery.isLoading;
+  const candidateDetailLoading = candidateQuery.isLoading || similarJobsQuery.isLoading;
+  const activeError = error
+    ?? (candidatesQuery.error || searchQuery.error || candidateQuery.error || similarJobsQuery.error
+      ? getApiErrorMessage(
+          candidatesQuery.error || searchQuery.error || candidateQuery.error || similarJobsQuery.error,
+          "Unable to load candidates",
+          {
+            401: "Your session expired. Please log in again.",
+            404: "That candidate could not be found.",
+            422: "Search query is too short. Try a more specific prompt.",
+          },
+        )
+      : null);
+
   useEffect(() => {
-    if (!token) {
-      return;
+    if (!selectedCandidateId && candidates[0]?.id) {
+      setSelectedCandidateId(candidates[0].id);
     }
-
-    let cancelled = false;
-    async function loadCandidates() {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await listCandidates(token, { limit: 100 });
-        if (!cancelled) {
-          setCandidates(response.items);
-          setSelectedCandidateId((current) => current || response.items[0]?.id || "");
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load candidates", {
-              401: "Your session expired. Please log in again.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadCandidates();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || !selectedCandidateId) {
-      return;
-    }
-
-    let cancelled = false;
-    async function loadCandidateDetails() {
-      setCandidateDetailLoading(true);
-      try {
-        const [detailResponse, similarJobsResponse] = await Promise.all([
-          getCandidate(token, selectedCandidateId),
-          getSimilarJobsForCandidate(token, selectedCandidateId),
-        ]);
-        if (!cancelled) {
-          setSelectedCandidate(detailResponse);
-          setSimilarJobs(similarJobsResponse);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load candidate", {
-              401: "Your session expired. Please log in again.",
-              404: "That candidate could not be found.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setCandidateDetailLoading(false);
-        }
-      }
-    }
-
-    void loadCandidateDetails();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCandidateId, token]);
-
-  async function refreshCandidates() {
-    if (!token) {
-      return;
-    }
-    const response = await listCandidates(token, { limit: 100 });
-    setCandidates(response.items);
-    setSelectedCandidateId(response.items[0]?.id ?? "");
-  }
+  }, [candidates, selectedCandidateId]);
 
   async function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!token) {
-      return;
-    }
-
-    if (!query.trim()) {
-      setSearchResults(null);
-      return;
-    }
-
-    setSearching(true);
-    try {
-      const results = await searchCandidates(token, query.trim());
-      setSearchResults(results);
-    } catch (searchError) {
-      setError(
-        getApiErrorMessage(searchError, "Unable to search candidates", {
-          401: "Your session expired. Please log in again.",
-          422: "Search query is too short. Try a more specific prompt.",
-        }),
-      );
-    } finally {
-      setSearching(false);
-    }
+    setError(null);
+    setSubmittedQuery(queryInput.trim());
   }
 
   async function handleCreateCandidate(event: React.FormEvent<HTMLFormElement>) {
@@ -162,7 +93,6 @@ export default function CandidatesPage() {
     }
 
     setError(null);
-    setCreatingCandidate(true);
     setCreateStatusMessage(
       formMode === "pdf"
         ? "Uploading the PDF, extracting the resume, and generating an embedding..."
@@ -175,30 +105,29 @@ export default function CandidatesPage() {
           : "Still working. HireIQ is generating the resume embedding for semantic search.",
       );
     }, 1200);
+
     try {
-      if (formMode === "pdf") {
-        if (!resumeFile) {
-          throw new Error("Please attach a PDF resume.");
-        }
-        await createCandidateFromPdf(token, {
-          name: formState.name,
-          email: formState.email,
-          linkedin_url: formState.linkedinUrl || undefined,
-          resume: resumeFile,
-        });
-      } else {
-        await createCandidate(token, {
-          name: formState.name,
-          email: formState.email,
-          linkedin_url: formState.linkedinUrl || undefined,
-          resume_text: formState.resumeText,
-        });
-      }
+      const createdCandidate =
+        formMode === "pdf"
+          ? await createCandidateFromPdfMutation.mutateAsync({
+              name: formState.name,
+              email: formState.email,
+              linkedin_url: formState.linkedinUrl || undefined,
+              resume: resumeFile!,
+            })
+          : await createCandidateMutation.mutateAsync({
+              name: formState.name,
+              email: formState.email,
+              linkedin_url: formState.linkedinUrl || undefined,
+              resume_text: formState.resumeText,
+            });
 
       setFormState({ name: "", email: "", linkedinUrl: "", resumeText: "" });
       setResumeFile(null);
-      setSearchResults(null);
-      await refreshCandidates();
+      setSubmittedQuery("");
+      setQueryInput("");
+      setSelectedCandidateId(createdCandidate.id);
+      await queryClient.invalidateQueries({ queryKey: ["candidates"] });
     } catch (createError) {
       setError(
         getApiErrorMessage(createError, "Unable to create candidate", {
@@ -212,13 +141,8 @@ export default function CandidatesPage() {
     } finally {
       window.clearTimeout(slowRequestTimer);
       setCreateStatusMessage(null);
-      setCreatingCandidate(false);
     }
   }
-
-  const visibleCandidates = searchResults
-    ? searchResults.map((result) => result.candidate)
-    : candidates;
 
   return (
     <div className="space-y-8">
@@ -231,10 +155,10 @@ export default function CandidatesPage() {
         </p>
       </section>
 
-      {error ? (
+      {activeError ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Candidate workspace issue</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <CardDescription>{activeError}</CardDescription>
         </Card>
       ) : null}
 
@@ -251,22 +175,22 @@ export default function CandidatesPage() {
           <form className="mt-6 flex flex-col gap-3 md:flex-row" onSubmit={handleSearch}>
             <Input
               placeholder="Search semantically: fastapi backend engineer"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={queryInput}
+              onChange={(event) => setQueryInput(event.target.value)}
               disabled={searching}
             />
             <Button type="submit" disabled={searching}>
               <Search className="mr-2 h-4 w-4" />
               {searching ? "Searching..." : "Search"}
             </Button>
-            {searchResults ? (
+            {submittedQuery ? (
               <Button
                 type="button"
                 variant="secondary"
                 disabled={searching}
                 onClick={() => {
-                  setQuery("");
-                  setSearchResults(null);
+                  setQueryInput("");
+                  setSubmittedQuery("");
                 }}
               >
                 Reset
@@ -276,14 +200,14 @@ export default function CandidatesPage() {
 
           <div className="mt-6 grid gap-3">
             {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading candidates...</p>
+              Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-24 w-full" />)
             ) : visibleCandidates.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No candidates yet. Add the first profile to start semantic matching.
               </p>
             ) : (
               visibleCandidates.map((candidate) => {
-                const result = searchResults?.find((item) => item.candidate.id === candidate.id);
+                const result = searchQuery.data?.find((item) => item.candidate.id === candidate.id);
                 return (
                   <button
                     key={candidate.id}
@@ -317,7 +241,7 @@ export default function CandidatesPage() {
                 className="flex-1"
                 type="button"
                 variant={formMode === "text" ? "primary" : "secondary"}
-                disabled={creatingCandidate}
+                disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
                 onClick={() => setFormMode("text")}
               >
                 Resume text
@@ -326,7 +250,7 @@ export default function CandidatesPage() {
                 className="flex-1"
                 type="button"
                 variant={formMode === "pdf" ? "primary" : "secondary"}
-                disabled={creatingCandidate}
+                disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
                 onClick={() => setFormMode("pdf")}
               >
                 PDF upload
@@ -335,7 +259,7 @@ export default function CandidatesPage() {
             <Input
               placeholder="Candidate name"
               required
-              disabled={creatingCandidate}
+              disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
               value={formState.name}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, name: event.target.value }))
@@ -345,7 +269,7 @@ export default function CandidatesPage() {
               placeholder="candidate@example.com"
               required
               type="email"
-              disabled={creatingCandidate}
+              disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
               value={formState.email}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, email: event.target.value }))
@@ -353,7 +277,7 @@ export default function CandidatesPage() {
             />
             <Input
               placeholder="LinkedIn URL (optional)"
-              disabled={creatingCandidate}
+              disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
               value={formState.linkedinUrl}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, linkedinUrl: event.target.value }))
@@ -362,7 +286,7 @@ export default function CandidatesPage() {
             {formMode === "text" ? (
               <Textarea
                 placeholder="Paste resume text here"
-                disabled={creatingCandidate}
+                disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
                 value={formState.resumeText}
                 onChange={(event) =>
                   setFormState((current) => ({ ...current, resumeText: event.target.value }))
@@ -372,7 +296,7 @@ export default function CandidatesPage() {
               <Input
                 accept=".pdf,application/pdf"
                 type="file"
-                disabled={creatingCandidate}
+                disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending}
                 onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
               />
             )}
@@ -381,8 +305,8 @@ export default function CandidatesPage() {
                 {createStatusMessage}
               </p>
             ) : null}
-            <Button data-testid="candidate-save" type="submit" disabled={creatingCandidate}>
-              {creatingCandidate ? "Saving candidate..." : "Save candidate"}
+            <Button data-testid="candidate-save" type="submit" disabled={createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending || (formMode === "pdf" && !resumeFile)}>
+              {createCandidateMutation.isPending || createCandidateFromPdfMutation.isPending ? "Saving candidate..." : "Save candidate"}
             </Button>
           </form>
         </Card>
@@ -395,9 +319,10 @@ export default function CandidatesPage() {
             {selectedCandidate?.name ?? "Choose a candidate"}
           </CardTitle>
           {candidateDetailLoading ? (
-            <p className="mt-4 text-sm text-[color:var(--muted)]">
-              Loading candidate profile and similar jobs...
-            </p>
+            <div className="mt-4 space-y-3">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-8 w-24" />
+            </div>
           ) : selectedCandidate ? (
             <div className="mt-6 space-y-4">
               <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
@@ -428,9 +353,7 @@ export default function CandidatesPage() {
           <CardTitle className="mt-2 text-3xl">Best matching roles</CardTitle>
           <div className="mt-6 grid gap-3">
             {candidateDetailLoading ? (
-              <p className="text-sm text-[color:var(--muted)]">
-                Matching this candidate against your job library...
-              </p>
+              Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-24 w-full" />)
             ) : selectedCandidateId && similarJobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No similar jobs available yet. Create more roles or wait for embeddings to be ready.

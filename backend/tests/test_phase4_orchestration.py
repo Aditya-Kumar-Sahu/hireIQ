@@ -247,6 +247,110 @@ def test_application_status_sse_stream_replays_pipeline_events(
     assert "event: complete" in body
 
 
+def test_targeted_scheduler_and_offer_reruns_append_agent_runs(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Targeted rerun endpoints should append new scheduler and offer-writer runs."""
+
+    async def fake_embed_job_text(self: EmbeddingService, text: str) -> list[float]:
+        return _embedding_vector(1.0, 0.0, 0.0)
+
+    async def fake_embed_text(self: EmbeddingService, text: str) -> list[float]:
+        return _embedding_vector(0.98, 0.02, 0.0)
+
+    async def fake_suggest_slots(self: GoogleCalendarService) -> list[str]:
+        return ["2026-03-25T10:00:00+00:00"]
+
+    async def fake_schedule_interview(
+        self: GoogleCalendarService,
+        *,
+        candidate_email: str,
+        candidate_name: str,
+        job_title: str,
+        scheduled_at: str,
+    ) -> dict[str, object]:
+        return {
+            "mode": "live",
+            "event_id": "evt_rerun",
+            "html_link": "https://calendar.google.com/event?eid=evt_rerun",
+            "scheduled_at": scheduled_at,
+            "candidate_email": candidate_email,
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+        }
+
+    async def fake_send_email(
+        self: ResendEmailService,
+        *,
+        to_email: str,
+        subject: str,
+        html: str,
+    ) -> dict[str, object]:
+        return {"mode": "live", "email_id": "email_rerun", "to_email": to_email, "subject": subject}
+
+    monkeypatch.setattr(EmbeddingService, "embed_job_text", fake_embed_job_text)
+    monkeypatch.setattr(EmbeddingService, "embed_text", fake_embed_text)
+    monkeypatch.setattr(GoogleCalendarService, "suggest_slots", fake_suggest_slots)
+    monkeypatch.setattr(GoogleCalendarService, "schedule_interview", fake_schedule_interview)
+    monkeypatch.setattr(ResendEmailService, "send_email", fake_send_email)
+
+    headers = _auth_headers(client, "reruns@example.com")
+
+    job = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "title": "Backend Engineer",
+            "description": "Build backend APIs and workflow tooling.",
+            "requirements": "FastAPI PostgreSQL Docker communication",
+            "seniority": "mid",
+        },
+    ).json()["data"]
+
+    candidate = client.post(
+        "/api/v1/candidates",
+        headers=headers,
+        json={
+            "name": "Rerun Casey",
+            "email": "rerun.casey@example.com",
+            "resume_text": "Backend engineer with FastAPI and PostgreSQL experience.",
+        },
+    ).json()["data"]
+
+    application = client.post(
+        "/api/v1/applications",
+        headers=headers,
+        json={"job_id": job["id"], "candidate_id": candidate["id"]},
+    ).json()["data"]
+
+    schedule_rerun = client.post(
+        f"/api/v1/applications/{application['id']}/schedule",
+        headers=headers,
+        json={"availability_slots": ["2026-03-30T09:00:00+00:00"]},
+    )
+    assert schedule_rerun.status_code == 201
+    assert schedule_rerun.json()["data"]["agent_name"] == "scheduler"
+    assert schedule_rerun.json()["data"]["output"]["scheduled_at"] == "2026-03-30T09:00:00+00:00"
+
+    offer_rerun = client.post(
+        f"/api/v1/applications/{application['id']}/offer",
+        headers=headers,
+        json={"compensation_details": "Base salary 45 LPA plus equity."},
+    )
+    assert offer_rerun.status_code == 201
+    assert offer_rerun.json()["data"]["agent_name"] == "offer_writer"
+    assert "Base salary 45 LPA plus equity." in offer_rerun.json()["data"]["output"]["offer_text"]
+
+    detail_response = client.get(
+        f"/api/v1/applications/{application['id']}",
+        headers=headers,
+    )
+    agent_runs = detail_response.json()["data"]["agent_runs"]
+    assert len(agent_runs) == 6
+    assert [run["agent_name"] for run in agent_runs][-2:] == ["scheduler", "offer_writer"]
+
+
 def test_crewai_runner_builds_real_agents_and_tools() -> None:
     """CrewAI runner should expose real CrewAI agents wired with tool wrappers."""
     context = PipelineContext(

@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   disconnectGoogleCalendar,
   getApiErrorMessage,
   getGoogleCalendarAuthorizationUrl,
-  getIntegrations,
 } from "@/lib/api";
-import type { IntegrationStatus } from "@/lib/types";
+import { useIntegrations } from "@/hooks/use-meta";
 
 function StatusBadge({ enabled }: { enabled: boolean }) {
   return (
@@ -25,16 +26,17 @@ function StatusBadge({ enabled }: { enabled: boolean }) {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { token, user } = useSession();
-  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null);
+  const integrationsQuery = useIntegrations(token);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-
-  async function loadIntegrations(activeToken: string) {
-    const response = await getIntegrations(activeToken);
-    setIntegrationStatus(response);
-  }
+  const connectMutation = useMutation({
+    mutationFn: () => getGoogleCalendarAuthorizationUrl(token),
+  });
+  const disconnectMutation = useMutation({
+    mutationFn: () => disconnectGoogleCalendar(token),
+  });
 
   useEffect(() => {
     const googleState = searchParams.get("google");
@@ -48,45 +50,10 @@ export default function SettingsPage() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    let cancelled = false;
-    async function load() {
-      setError(null);
-      try {
-        const response = await getIntegrations(token);
-        if (!cancelled) {
-          setIntegrationStatus(response);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load integrations", {
-              401: "Your session expired. Please log in again.",
-            }),
-          );
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
   async function handleConnectGoogleCalendar() {
-    if (!token) {
-      return;
-    }
-
-    setWorking(true);
     setError(null);
     try {
-      const response = await getGoogleCalendarAuthorizationUrl(token);
+      const response = await connectMutation.mutateAsync();
       window.location.assign(response.authorization_url);
     } catch (connectError) {
       setError(
@@ -94,20 +61,14 @@ export default function SettingsPage() {
           401: "Your session expired. Please log in again.",
         }),
       );
-      setWorking(false);
     }
   }
 
   async function handleDisconnectGoogleCalendar() {
-    if (!token) {
-      return;
-    }
-
-    setWorking(true);
     setError(null);
     try {
-      await disconnectGoogleCalendar(token);
-      await loadIntegrations(token);
+      await disconnectMutation.mutateAsync();
+      await queryClient.invalidateQueries({ queryKey: ["meta", "integrations"] });
       setNotice("Google Calendar has been disconnected.");
     } catch (disconnectError) {
       setError(
@@ -115,10 +76,17 @@ export default function SettingsPage() {
           401: "Your session expired. Please log in again.",
         }),
       );
-    } finally {
-      setWorking(false);
     }
   }
+
+  const integrationStatus = integrationsQuery.data;
+  const isLoading = integrationsQuery.isLoading;
+  const activeError = error
+    ?? (integrationsQuery.error
+      ? getApiErrorMessage(integrationsQuery.error, "Unable to load integrations", {
+          401: "Your session expired. Please log in again.",
+        })
+      : null);
 
   return (
     <div className="space-y-8">
@@ -138,10 +106,10 @@ export default function SettingsPage() {
         </Card>
       ) : null}
 
-      {error ? (
+      {activeError ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Unable to load settings</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <CardDescription>{activeError}</CardDescription>
         </Card>
       ) : null}
 
@@ -169,96 +137,102 @@ export default function SettingsPage() {
           <p className="eyebrow">Integrations</p>
           <CardTitle className="mt-2 text-3xl">Backend delivery status</CardTitle>
           <div className="mt-6 grid gap-3">
-            <div className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-semibold">Google Calendar scheduling</p>
-                  <p className="mt-1 text-sm text-[color:var(--muted)]">
-                    {integrationStatus?.google_calendar_connected_email
-                      ? `Connected as ${integrationStatus.google_calendar_connected_email}.`
-                      : "Authorize a recruiter calendar so the scheduler can create live interview events."}
-                  </p>
+            {isLoading && !integrationStatus ? (
+              Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-28 w-full" />)
+            ) : (
+              <>
+                <div className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-semibold">Google Calendar scheduling</p>
+                      <p className="mt-1 text-sm text-[color:var(--muted)]">
+                        {integrationStatus?.google_calendar_connected_email
+                          ? `Connected as ${integrationStatus.google_calendar_connected_email}.`
+                          : "Authorize a recruiter calendar so the scheduler can create live interview events."}
+                      </p>
+                    </div>
+                    <StatusBadge enabled={integrationStatus?.google_calendar_enabled ?? false} />
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {integrationStatus?.google_calendar_enabled ? (
+                      <Button
+                        data-testid="google-calendar-disconnect"
+                        disabled={disconnectMutation.isPending}
+                        type="button"
+                        variant="secondary"
+                        onClick={handleDisconnectGoogleCalendar}
+                      >
+                        Disconnect Google Calendar
+                      </Button>
+                    ) : (
+                      <Button
+                        data-testid="google-calendar-connect"
+                        disabled={connectMutation.isPending}
+                        type="button"
+                        onClick={handleConnectGoogleCalendar}
+                      >
+                        Connect Google Calendar
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                <StatusBadge enabled={integrationStatus?.google_calendar_enabled ?? false} />
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                {integrationStatus?.google_calendar_enabled ? (
-                  <Button
-                    data-testid="google-calendar-disconnect"
-                    disabled={working}
-                    type="button"
-                    variant="secondary"
-                    onClick={handleDisconnectGoogleCalendar}
-                  >
-                    Disconnect Google Calendar
-                  </Button>
-                ) : (
-                  <Button
-                    data-testid="google-calendar-connect"
-                    disabled={working}
-                    type="button"
-                    onClick={handleConnectGoogleCalendar}
-                  >
-                    Connect Google Calendar
-                  </Button>
-                )}
-              </div>
-            </div>
 
-            {[
-              {
-                label: "Google Gemini reasoning + embeddings",
-                enabled: integrationStatus?.gemini_enabled ?? false,
-                detail: "Screening and semantic ranking automatically fall back when the Gemini key is absent.",
-              },
-              {
-                label: "Resend outbound email",
-                enabled: integrationStatus?.resend_enabled ?? false,
-                detail: "Live interview and offer emails switch to preview-safe metadata without credentials.",
-              },
-              {
-                label: "Cloudflare R2 resume storage",
-                enabled: integrationStatus?.resume_storage_enabled ?? false,
-                detail: "Multipart PDF uploads persist the original resume for later download when configured.",
-              },
-              {
-                label: "SSE application feed",
-                enabled: integrationStatus?.sse_enabled ?? true,
-                detail: "Live pipeline progress stays available even when providers fall back to preview mode.",
-              },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4"
-              >
-                <div>
-                  <p className="font-semibold">{item.label}</p>
-                  <p className="mt-1 text-sm text-[color:var(--muted)]">{item.detail}</p>
-                </div>
-                <StatusBadge enabled={item.enabled} />
-              </div>
-            ))}
+                {[
+                  {
+                    label: "Google Gemini reasoning + embeddings",
+                    enabled: integrationStatus?.gemini_enabled ?? false,
+                    detail: "Screening and semantic ranking automatically fall back when the Gemini key is absent.",
+                  },
+                  {
+                    label: "Resend outbound email",
+                    enabled: integrationStatus?.resend_enabled ?? false,
+                    detail: "Live interview and offer emails switch to preview-safe metadata without credentials.",
+                  },
+                  {
+                    label: "Cloudflare R2 resume storage",
+                    enabled: integrationStatus?.resume_storage_enabled ?? false,
+                    detail: "Multipart PDF uploads persist the original resume for later download when configured.",
+                  },
+                  {
+                    label: "SSE application feed",
+                    enabled: integrationStatus?.sse_enabled ?? true,
+                    detail: "Live pipeline progress stays available even when providers fall back to preview mode.",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4"
+                  >
+                    <div>
+                      <p className="font-semibold">{item.label}</p>
+                      <p className="mt-1 text-sm text-[color:var(--muted)]">{item.detail}</p>
+                    </div>
+                    <StatusBadge enabled={item.enabled} />
+                  </div>
+                ))}
 
-            <div className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-semibold">ATS webhooks</p>
-                  <p className="mt-1 text-sm text-[color:var(--muted)]">
-                    Share this endpoint with your ATS so inbound application and status events are
-                    signature-verified and logged.
-                  </p>
+                <div className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 px-4 py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-semibold">ATS webhooks</p>
+                      <p className="mt-1 text-sm text-[color:var(--muted)]">
+                        Share this endpoint with your ATS so inbound application and status events are
+                        signature-verified and logged.
+                      </p>
+                    </div>
+                    <StatusBadge enabled={integrationStatus?.ats_webhooks_enabled ?? false} />
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-[rgba(247,243,236,0.8)] px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                      Webhook URL
+                    </p>
+                    <p className="mt-2 break-all text-sm font-semibold">
+                      {integrationStatus?.ats_webhook_url ?? "Loading..."}
+                    </p>
+                  </div>
                 </div>
-                <StatusBadge enabled={integrationStatus?.ats_webhooks_enabled ?? false} />
-              </div>
-              <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-[rgba(247,243,236,0.8)] px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
-                  Webhook URL
-                </p>
-                <p className="mt-2 break-all text-sm font-semibold">
-                  {integrationStatus?.ats_webhook_url ?? "Loading..."}
-                </p>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </Card>
       </section>

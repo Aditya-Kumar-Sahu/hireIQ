@@ -105,6 +105,7 @@ class OfferDraftTool(_ContextTool):
                 "job_title": self._context.job_title,
                 "company_name": self._context.company_name,
                 "recommendation": self._context.recommendation,
+                "compensation_details": self._context.compensation_details,
             }
         )
 

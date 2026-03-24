@@ -323,6 +323,55 @@ def test_job_update_soft_delete_and_status_filtering(client: TestClient) -> None
     assert closed_jobs.json()["data"]["items"][0]["status"] == "closed"
 
 
+def test_dashboard_stats_and_activity_are_server_side_company_scoped(client: TestClient) -> None:
+    """Dashboard aggregates and activity should come from backend company-scoped queries."""
+    token = _signup_and_authenticate(client, "dashboard@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    job = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "title": "Staff Backend Engineer",
+            "description": "Build platform APIs.",
+            "requirements": "Python FastAPI PostgreSQL",
+            "seniority": "senior",
+        },
+    ).json()["data"]
+
+    candidate = client.post(
+        "/api/v1/candidates",
+        headers=headers,
+        json={
+            "name": "Dashboard Casey",
+            "email": "dashboard.casey@example.com",
+            "resume_text": "Python FastAPI PostgreSQL",
+        },
+    ).json()["data"]
+
+    client.post(
+        "/api/v1/applications",
+        headers=headers,
+        json={"job_id": job["id"], "candidate_id": candidate["id"]},
+    )
+
+    stats_response = client.get("/api/v1/dashboard/stats", headers=headers)
+    assert stats_response.status_code == 200
+    stats = stats_response.json()["data"]
+    assert stats["total_jobs"] == 1
+    assert stats["active_jobs"] == 0
+    assert stats["total_candidates"] == 1
+    assert stats["total_applications"] == 1
+    assert "offered" in stats["status_counts"]
+
+    activity_response = client.get("/api/v1/dashboard/activity?limit=10", headers=headers)
+    assert activity_response.status_code == 200
+    activity = activity_response.json()["data"]
+    assert any(item["type"] == "application" for item in activity)
+    assert any(item["type"] == "agent_run" for item in activity)
+    assert any(item["type"] == "job" for item in activity)
+
+
 def test_validation_errors_use_standard_envelope(client: TestClient) -> None:
     """Request validation failures stay inside the shared API envelope."""
     response = client.post(

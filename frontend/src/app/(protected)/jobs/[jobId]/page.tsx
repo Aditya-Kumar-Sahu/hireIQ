@@ -3,20 +3,22 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useApplications } from "@/hooks/use-applications";
+import { useCandidates } from "@/hooks/use-candidates";
+import { useJob } from "@/hooks/use-jobs";
 import {
   createApplication,
   getApiErrorMessage,
-  listApplications,
-  listCandidates,
-  getJob,
   updateJob,
 } from "@/lib/api";
-import type { Application, Candidate, Job, JobStatus } from "@/lib/types";
+import type { Application, Candidate, JobStatus } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
 const columns: Array<{ status: Application["status"]; label: string }> = [
@@ -29,102 +31,102 @@ const columns: Array<{ status: Application["status"]; label: string }> = [
   { status: "rejected", label: "Rejected" },
 ];
 
+const EMPTY_CANDIDATES: Candidate[] = [];
+
 export default function JobDetailPage() {
   const params = useParams<{ jobId: string }>();
   const jobId = typeof params.jobId === "string" ? params.jobId : params.jobId?.[0];
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { token } = useSession();
-  const [job, setJob] = useState<Job | null>(null);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const jobQuery = useJob(token, jobId);
+  const applicationsQuery = useApplications(token, jobId ? { job_id: jobId, limit: 100 } : undefined);
+  const candidatesQuery = useCandidates(token, { limit: 100 });
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [statusValue, setStatusValue] = useState<JobStatus>("draft");
   const [error, setError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [submittingApplication, setSubmittingApplication] = useState(false);
   const [submissionStatusMessage, setSubmissionStatusMessage] = useState<string | null>(null);
-  const [savingStatus, setSavingStatus] = useState(false);
+
+  const createApplicationMutation = useMutation({
+    mutationFn: (input: { job_id: string; candidate_id: string }) => createApplication(token, input),
+  });
+  const updateJobMutation = useMutation({
+    mutationFn: (status: JobStatus) => updateJob(token, jobId!, { status }),
+  });
+
+  const job = jobQuery.data;
+  const applications = applicationsQuery.data?.items ?? [];
+  const candidates = candidatesQuery.data?.items ?? EMPTY_CANDIDATES;
+  const loading = jobQuery.isLoading || applicationsQuery.isLoading || candidatesQuery.isLoading;
+  const queryError = jobQuery.error ?? applicationsQuery.error ?? candidatesQuery.error;
 
   useEffect(() => {
-    const currentJobId = jobId;
-    if (!token || !currentJobId) {
-      return;
+    if (job?.status) {
+      setStatusValue(job.status);
     }
-    const resolvedJobId: string = currentJobId;
+  }, [job?.status]);
 
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [jobData, applicationData, candidateData] = await Promise.all([
-          getJob(token, resolvedJobId),
-          listApplications(token, { job_id: resolvedJobId, limit: 100 }),
-          listCandidates(token, { limit: 100 }),
-        ]);
-        if (!cancelled) {
-          setJob(jobData);
-          setStatusValue(jobData.status);
-          setApplications(applicationData.items);
-          setCandidates(candidateData.items);
-          setSelectedCandidateId(candidateData.items[0]?.id ?? "");
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load role board", {
-              401: "Your session expired. Please log in again.",
-              404: "This role could not be found.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+  useEffect(() => {
+    if (!selectedCandidateId && candidates[0]?.id) {
+      setSelectedCandidateId(candidates[0].id);
     }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId, token]);
+  }, [candidates, selectedCandidateId]);
 
   if (loading) {
-    return <p className="text-sm text-[color:var(--muted)]">Loading role board...</p>;
+    return (
+      <div className="space-y-6">
+        <Card>
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="mt-4 h-12 w-72" />
+          <Skeleton className="mt-4 h-20 w-full" />
+        </Card>
+        <Card>
+          <Skeleton className="h-8 w-40" />
+          <div className="mt-6 grid gap-4 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-40 w-full" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   if (!job) {
     return (
       <Card>
         <CardTitle className="text-2xl">Role not found</CardTitle>
-        <CardDescription>{error ?? "This job could not be loaded."}</CardDescription>
+        <CardDescription>
+          {getApiErrorMessage(queryError, "This job could not be loaded.", {
+            401: "Your session expired. Please log in again.",
+            404: "This role could not be found.",
+          })}
+        </CardDescription>
       </Card>
     );
   }
 
   async function handleCreateApplication(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!token || !selectedCandidateId || !job) {
+    if (!selectedCandidateId || !jobId) {
       return;
     }
-    const currentJobId = job.id;
 
     setSubmissionError(null);
-    setSubmittingApplication(true);
     setSubmissionStatusMessage("Creating the application and opening the recruiter workflow...");
     const slowRequestTimer = window.setTimeout(() => {
       setSubmissionStatusMessage(
         "Still working. HireIQ is saving the application and preparing the live pipeline view.",
       );
     }, 1200);
+
     try {
-      const application = await createApplication(token, {
-        job_id: currentJobId,
+      const application = await createApplicationMutation.mutateAsync({
+        job_id: jobId,
         candidate_id: selectedCandidateId,
       });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
       setSubmissionStatusMessage("Application created. Opening the live application view...");
       router.push(`/applications/${application.id}`);
     } catch (submitError) {
@@ -138,21 +140,15 @@ export default function JobDetailPage() {
       );
     } finally {
       window.clearTimeout(slowRequestTimer);
-      setSubmittingApplication(false);
       setSubmissionStatusMessage(null);
     }
   }
 
   async function handleStatusUpdate() {
-    if (!token || !job) {
-      return;
-    }
-    const currentJobId = job.id;
-
-    setSavingStatus(true);
+    setError(null);
     try {
-      const updatedJob = await updateJob(token, currentJobId, { status: statusValue });
-      setJob(updatedJob);
+      await updateJobMutation.mutateAsync(statusValue);
+      await queryClient.invalidateQueries({ queryKey: ["jobs"] });
     } catch (updateError) {
       setError(
         getApiErrorMessage(updateError, "Unable to update role", {
@@ -161,8 +157,6 @@ export default function JobDetailPage() {
           422: "Please review the selected status and try again.",
         }),
       );
-    } finally {
-      setSavingStatus(false);
     }
   }
 
@@ -200,15 +194,15 @@ export default function JobDetailPage() {
                 <select
                   className="h-11 min-w-[180px] rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
                   value={statusValue}
-                  disabled={savingStatus}
+                  disabled={updateJobMutation.isPending}
                   onChange={(event) => setStatusValue(event.target.value as JobStatus)}
                 >
                   <option value="draft">Draft</option>
                   <option value="active">Active</option>
                   <option value="closed">Closed</option>
                 </select>
-                <Button type="button" variant="secondary" onClick={handleStatusUpdate} disabled={savingStatus}>
-                  {savingStatus ? "Saving..." : "Save status"}
+                <Button type="button" variant="secondary" onClick={handleStatusUpdate} disabled={updateJobMutation.isPending}>
+                  {updateJobMutation.isPending ? "Saving..." : "Save status"}
                 </Button>
               </div>
             </div>
@@ -224,7 +218,7 @@ export default function JobDetailPage() {
               <select
                 className="mt-4 h-11 w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
                 value={selectedCandidateId}
-                disabled={submittingApplication}
+                disabled={createApplicationMutation.isPending}
                 onChange={(event) => setSelectedCandidateId(event.target.value)}
               >
                 {candidates.map((candidate) => (
@@ -246,13 +240,13 @@ export default function JobDetailPage() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <Button
                   data-testid="application-create-submit"
-                  disabled={!selectedCandidateId || submittingApplication}
+                  disabled={!selectedCandidateId || createApplicationMutation.isPending}
                   type="submit"
                 >
-                  {submittingApplication ? "Creating application..." : "Create application"}
+                  {createApplicationMutation.isPending ? "Creating application..." : "Create application"}
                 </Button>
                 <Link href="/candidates">
-                  <Button type="button" variant="secondary" disabled={submittingApplication}>
+                  <Button type="button" variant="secondary" disabled={createApplicationMutation.isPending}>
                     Add new candidate
                   </Button>
                 </Link>

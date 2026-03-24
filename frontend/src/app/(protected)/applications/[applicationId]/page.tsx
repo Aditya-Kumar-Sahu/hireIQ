@@ -2,21 +2,18 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { getApiErrorMessage, getApplication, getSimilarJobsForApplication } from "@/lib/api";
-import type { ApplicationDetail, SimilarJobResult } from "@/lib/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useApplication, useSimilarJobsForApplication } from "@/hooks/use-applications";
+import { useApplicationStatusStream } from "@/hooks/use-sse";
+import { getApiErrorMessage } from "@/lib/api";
+import type { AssessmentQuestion, StreamEvent } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
-
-type StreamEvent = {
-  event: string;
-  timestamp: string;
-  data: Record<string, unknown>;
-};
 
 function getString(value: unknown) {
   return typeof value === "string" ? value : null;
@@ -48,10 +45,8 @@ function formatTokenCount(tokens: number | null | undefined) {
 
 function StructuredValue({
   value,
-  depth = 0,
 }: {
   value: unknown;
-  depth?: number;
 }) {
   if (value === null || value === undefined) {
     return <span className="text-sm text-[color:var(--muted)]">None</span>;
@@ -98,7 +93,7 @@ function StructuredValue({
             key={index}
             className="rounded-2xl border border-[color:var(--line)] bg-[rgba(255,255,255,0.72)] p-3"
           >
-            <StructuredValue value={item} depth={depth + 1} />
+            <StructuredValue value={item} />
           </div>
         ))}
       </div>
@@ -122,7 +117,7 @@ function StructuredValue({
               {formatStructuredKey(key)}
             </p>
             <div className="mt-2">
-              <StructuredValue value={entryValue} depth={depth + 1} />
+              <StructuredValue value={entryValue} />
             </div>
           </div>
         ))}
@@ -386,6 +381,40 @@ function AgentOutputSections({
   return <div className="grid gap-3">{sections}</div>;
 }
 
+function AssessmentQuestionCard({
+  question,
+  index,
+  provenance,
+}: {
+  question: AssessmentQuestion;
+  index: number;
+  provenance: Record<string, unknown> | undefined;
+}) {
+  return (
+    <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge>{titleCase(question.type)}</Badge>
+        <Badge variant="default">{question.estimated_time_minutes} min</Badge>
+      </div>
+      <p className="mt-3 font-semibold">
+        Q{index + 1}. {question.question}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {question.evaluation_criteria.map((criterion) => (
+          <Badge key={criterion} variant="success">
+            {criterion}
+          </Badge>
+        ))}
+      </div>
+      <p className="mt-3 text-sm text-[color:var(--muted)]">
+        Provenance: {(provenance?.derived_from as string | undefined) ?? "Pending"}
+        {" / "}
+        {(provenance?.source_value as string | undefined) ?? "Pending"}
+      </p>
+    </div>
+  );
+}
+
 export default function ApplicationDetailPage() {
   const params = useParams<{ applicationId: string }>();
   const applicationId =
@@ -393,151 +422,45 @@ export default function ApplicationDetailPage() {
       ? params.applicationId
       : params.applicationId?.[0];
   const { token } = useSession();
-  const [application, setApplication] = useState<ApplicationDetail | null>(null);
-  const [similarJobs, setSimilarJobs] = useState<SimilarJobResult[]>([]);
-  const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [showLoadingPane, setShowLoadingPane] = useState(false);
-  const [streamStatus, setStreamStatus] = useState<
-    "connecting" | "live" | "reconnecting" | "complete" | "failed"
-  >("connecting");
-  const terminalStreamEvent = useRef(false);
+  const applicationQuery = useApplication(token, applicationId);
+  const similarJobsQuery = useSimilarJobsForApplication(token, applicationId);
+  const { events, streamStatus } = useApplicationStatusStream(applicationId);
 
-  useEffect(() => {
-    const currentId = applicationId;
-    if (!token || !currentId) {
-      return;
-    }
-    const resolvedId: string = currentId;
+  if (applicationQuery.isLoading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-4 h-12 w-80" />
+          <Skeleton className="mt-4 h-16 w-full" />
+        </Card>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Skeleton className="h-80 w-full" />
+          <Skeleton className="h-80 w-full" />
+        </div>
+      </div>
+    );
+  }
 
-    let cancelled = false;
-    let loadingTimer: number | undefined;
-    async function load() {
-      setLoading(true);
-      setShowLoadingPane(false);
-      setError(null);
-      loadingTimer = window.setTimeout(() => {
-        if (!cancelled) {
-          setShowLoadingPane(true);
-        }
-      }, 250);
-      try {
-        const [applicationResponse, similarJobsResponse] = await Promise.all([
-          getApplication(token, resolvedId),
-          getSimilarJobsForApplication(token, resolvedId),
-        ]);
-        if (!cancelled) {
-          setApplication(applicationResponse);
-          setSimilarJobs(similarJobsResponse);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load application", {
-              401: "Your session expired. Please log in again.",
-              404: "That application could not be found.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          if (loadingTimer) {
-            window.clearTimeout(loadingTimer);
-          }
-          setShowLoadingPane(false);
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [applicationId, token]);
-
-  useEffect(() => {
-    const currentId = applicationId;
-    if (!currentId) {
-      return;
-    }
-    const resolvedId: string = currentId;
-
-    const source = new EventSource(`/api/applications/${resolvedId}/status`);
-    const eventNames = ["queued", "pipeline_started", "stage", "complete", "failed"];
-
-    const handler = (incoming: Event) => {
-      const message = incoming as MessageEvent<string>;
-      try {
-        const payload = JSON.parse(message.data) as StreamEvent;
-        setEvents((current) => {
-          if (
-            current.some(
-              (item) =>
-                item.event === payload.event &&
-                item.timestamp === payload.timestamp &&
-                JSON.stringify(item.data) === JSON.stringify(payload.data),
-            )
-          ) {
-            return current;
-          }
-          return [...current, payload];
-        });
-        if (payload.event === "complete" || payload.event === "failed") {
-          terminalStreamEvent.current = true;
-          setStreamStatus(payload.event);
-          source.close();
-        }
-      } catch {
-        // Ignore malformed events and keep the stream alive.
-      }
-    };
-
-    source.onopen = () => {
-      if (!terminalStreamEvent.current) {
-        setStreamStatus("live");
-      }
-    };
-    eventNames.forEach((name) => source.addEventListener(name, handler));
-    source.onerror = () => {
-      if (terminalStreamEvent.current) {
-        return;
-      }
-      setStreamStatus("reconnecting");
-    };
-
-    return () => {
-      terminalStreamEvent.current = false;
-      eventNames.forEach((name) => source.removeEventListener(name, handler));
-      source.close();
-    };
-  }, [applicationId]);
-
-  if (loading && !application && showLoadingPane) {
+  if (!applicationQuery.data) {
     return (
       <Card>
-        <CardTitle className="text-2xl">Loading application...</CardTitle>
+        <CardTitle className="text-2xl">Application unavailable</CardTitle>
         <CardDescription>
-          {error ?? "Fetching screening results, similar jobs, and the live pipeline feed."}
+          {getApiErrorMessage(applicationQuery.error, "This application could not be loaded.", {
+            401: "Your session expired. Please log in again.",
+            404: "That application could not be found.",
+          })}
         </CardDescription>
       </Card>
     );
   }
 
-  if (loading && !application) {
-    return <div className="min-h-[40vh]" aria-hidden="true" />;
-  }
-
-  if (!application) {
-    return (
-      <Card>
-        <CardTitle className="text-2xl">Application unavailable</CardTitle>
-        <CardDescription>{error ?? "This application could not be loaded."}</CardDescription>
-      </Card>
-    );
-  }
-
+  const application = applicationQuery.data;
+  const similarJobs = similarJobsQuery.data ?? [];
+  const pageError = similarJobsQuery.error
+    ? getApiErrorMessage(similarJobsQuery.error, "Unable to load application")
+    : null;
   const screenerOutput = application.agent_runs.find((run) => run.agent_name === "cv_screener")?.output;
   const schedulerOutput = application.agent_runs.find((run) => run.agent_name === "scheduler")?.output;
   const offerWriterOutput = application.agent_runs.find((run) => run.agent_name === "offer_writer")?.output;
@@ -553,12 +476,8 @@ export default function ApplicationDetailPage() {
     offerWriterOutput?.email_delivery && typeof offerWriterOutput.email_delivery === "object"
       ? (offerWriterOutput.email_delivery as Record<string, unknown>)
       : null;
-  const assessmentQuestions = Array.isArray(application.assessment_result?.questions)
-    ? (application.assessment_result.questions as string[])
-    : [];
-  const questionProvenance = Array.isArray(application.assessment_result?.question_provenance)
-    ? (application.assessment_result.question_provenance as Array<Record<string, unknown>>)
-    : [];
+  const assessmentQuestions = application.assessment_result?.questions ?? [];
+  const questionProvenance = application.assessment_result?.question_provenance ?? [];
 
   return (
     <div className="space-y-8">
@@ -580,10 +499,10 @@ export default function ApplicationDetailPage() {
         </div>
       </section>
 
-      {error ? (
+      {pageError ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Application issue</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <CardDescription>{pageError}</CardDescription>
         </Card>
       ) : null}
 
@@ -636,8 +555,8 @@ export default function ApplicationDetailPage() {
               <CardTitle className="mt-2 text-3xl">Pipeline activity</CardTitle>
             </div>
             <div className="flex items-center gap-2">
-                <Badge
-                  variant={
+              <Badge
+                variant={
                   streamStatus === "live" || streamStatus === "complete"
                     ? "success"
                     : streamStatus === "reconnecting"
@@ -649,9 +568,9 @@ export default function ApplicationDetailPage() {
                   ? "Live"
                   : streamStatus === "complete"
                     ? "Complete"
-                  : streamStatus === "reconnecting"
-                    ? "Reconnecting"
-                    : "Connecting"}
+                    : streamStatus === "reconnecting"
+                      ? "Reconnecting"
+                      : "Connecting"}
               </Badge>
               <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
                 <Activity className="h-5 w-5" />
@@ -665,8 +584,8 @@ export default function ApplicationDetailPage() {
                   {streamStatus === "failed"
                     ? "The pipeline reported a failure. Open the failed stage below for details."
                     : streamStatus === "reconnecting"
-                    ? "The live feed hit a temporary interruption. EventSource is retrying automatically."
-                    : "Waiting for stream events. This endpoint replays history, so refreshing the page is safe even after the pipeline completes."}
+                      ? "The live feed hit a temporary interruption. EventSource is retrying automatically."
+                      : "Waiting for stream events. This endpoint replays history, so refreshing the page is safe even after the pipeline completes."}
                 </p>
               </div>
             ) : (
@@ -682,20 +601,12 @@ export default function ApplicationDetailPage() {
           <CardTitle className="mt-2 text-3xl">Interview question set</CardTitle>
           <div className="mt-6 space-y-4">
             {assessmentQuestions.map((question, index) => (
-              <div
-                key={question}
-                className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
-              >
-                <p className="font-semibold">
-                  Q{index + 1}. {question}
-                </p>
-                <p className="mt-2 text-sm text-[color:var(--muted)]">
-                  Provenance:{" "}
-                  {(questionProvenance[index]?.derived_from as string | undefined) ?? "Pending"}
-                  {" / "}
-                  {(questionProvenance[index]?.source_value as string | undefined) ?? "Pending"}
-                </p>
-              </div>
+              <AssessmentQuestionCard
+                key={`${question.question}-${index}`}
+                question={question}
+                index={index}
+                provenance={questionProvenance[index]}
+              />
             ))}
             {assessmentQuestions.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
@@ -753,7 +664,9 @@ export default function ApplicationDetailPage() {
           <p className="eyebrow">Similar jobs</p>
           <CardTitle className="mt-2 text-3xl">Nearby role matches</CardTitle>
           <div className="mt-6 grid gap-3">
-            {similarJobs.length === 0 ? (
+            {similarJobsQuery.isLoading ? (
+              Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-24 w-full" />)
+            ) : similarJobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">No similar jobs returned for this application.</p>
             ) : (
               similarJobs.map((match) => (

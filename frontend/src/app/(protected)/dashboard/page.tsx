@@ -1,74 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { ArrowRight, BriefcaseBusiness, Radar, Users } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { getApiErrorMessage, listApplications, listCandidates, listJobs } from "@/lib/api";
-import type { Application, Candidate, Job } from "@/lib/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getApiErrorMessage } from "@/lib/api";
+import { useDashboardActivity, useDashboardStats } from "@/hooks/use-dashboard";
+import { useJobs } from "@/hooks/use-jobs";
 import { formatDate, titleCase } from "@/lib/utils";
+
+function MetricSkeleton() {
+  return (
+    <Card>
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="mt-4 h-10 w-24" />
+      <Skeleton className="mt-3 h-4 w-40" />
+    </Card>
+  );
+}
 
 export default function DashboardPage() {
   const { token } = useSession();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
+  const statsQuery = useDashboardStats(token);
+  const activityQuery = useDashboardActivity(token, 10);
+  const jobsQuery = useJobs(token, { limit: 5 });
 
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [jobData, candidateData, applicationData] = await Promise.all([
-          listJobs(token, { limit: 50 }),
-          listCandidates(token, { limit: 50 }),
-          listApplications(token, { limit: 100 }),
-        ]);
-        if (!cancelled) {
-          setJobs(jobData.items);
-          setCandidates(candidateData.items);
-          setApplications(applicationData.items);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            getApiErrorMessage(loadError, "Unable to load dashboard", {
-              401: "Your session expired. Please log in again.",
-            }),
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  const activeJobs = jobs.filter((job) => job.status !== "closed").length;
-  const offeredCount = applications.filter((application) =>
-    ["offered", "hired"].includes(application.status),
-  ).length;
-  const averageScore =
-    applications.filter((application) => application.score !== null).reduce((total, application) => {
-      return total + (application.score ?? 0);
-    }, 0) / Math.max(applications.filter((application) => application.score !== null).length, 1);
+  const error = statsQuery.error ?? activityQuery.error ?? jobsQuery.error;
+  const isLoading = statsQuery.isLoading || activityQuery.isLoading || jobsQuery.isLoading;
+  const stats = statsQuery.data;
+  const activity = activityQuery.data ?? [];
+  const jobs = jobsQuery.data?.items ?? [];
 
   return (
     <div className="space-y-8">
@@ -94,92 +59,115 @@ export default function DashboardPage() {
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Unable to load dashboard</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <CardDescription>
+            {getApiErrorMessage(error, "Unable to load dashboard", {
+              401: "Your session expired. Please log in again.",
+            })}
+          </CardDescription>
         </Card>
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: "Open jobs",
-            value: activeJobs,
-            description: "Live roles still accepting applicants",
-            icon: BriefcaseBusiness,
-          },
-          {
-            label: "Candidate profiles",
-            value: candidates.length,
-            description: "Profiles available for semantic matching",
-            icon: Users,
-          },
-          {
-            label: "Applications",
-            value: applications.length,
-            description: "Tracked across the pipeline",
-            icon: Radar,
-          },
-          {
-            label: "Average score",
-            value: Number.isFinite(averageScore) ? averageScore.toFixed(2) : "0.00",
-            description: `${offeredCount} offered or hired candidates`,
-            icon: ArrowRight,
-          },
-        ].map((metric) => {
-          const Icon = metric.icon;
-          return (
-            <Card key={metric.label}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="eyebrow">{metric.label}</p>
-                  <p className="mt-3 text-4xl font-semibold">{metric.value}</p>
-                  <p className="mt-2 text-sm text-[color:var(--muted)]">{metric.description}</p>
+        {isLoading || !stats ? (
+          Array.from({ length: 4 }, (_, index) => <MetricSkeleton key={index} />)
+        ) : (
+          [
+            {
+              label: "Open jobs",
+              value: stats.active_jobs,
+              description: `${stats.total_jobs} total jobs tracked`,
+              icon: BriefcaseBusiness,
+            },
+            {
+              label: "Candidate profiles",
+              value: stats.total_candidates,
+              description: "Profiles available for semantic matching",
+              icon: Users,
+            },
+            {
+              label: "Applications",
+              value: stats.total_applications,
+              description: "Tracked across the pipeline",
+              icon: Radar,
+            },
+            {
+              label: "Average score",
+              value: stats.average_score.toFixed(2),
+              description: `${stats.offered_count} offered or hired candidates`,
+              icon: ArrowRight,
+            },
+          ].map((metric) => {
+            const Icon = metric.icon;
+            return (
+              <Card key={metric.label}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="eyebrow">{metric.label}</p>
+                    <p className="mt-3 text-4xl font-semibold">{metric.value}</p>
+                    <p className="mt-2 text-sm text-[color:var(--muted)]">{metric.description}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
+                    <Icon className="h-5 w-5" />
+                  </div>
                 </div>
-                <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
-                  <Icon className="h-5 w-5" />
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+              </Card>
+            );
+          })
+        )}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="eyebrow">Recent applications</p>
+              <p className="eyebrow">Recent activity</p>
               <CardTitle className="mt-2 text-3xl">Latest pipeline movement</CardTitle>
             </div>
-            <Badge>{applications.length} tracked</Badge>
+            <Badge>{activity.length} events</Badge>
           </div>
           <div className="mt-6 grid gap-3">
-            {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading applications...</p>
-            ) : applications.length === 0 ? (
+            {isLoading ? (
+              Array.from({ length: 4 }, (_, index) => (
+                <div
+                  key={index}
+                  className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 p-4"
+                >
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="mt-3 h-4 w-56" />
+                </div>
+              ))
+            ) : activity.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
-                No applications yet. Create a job, add a candidate, and submit the first profile to
+                No activity yet. Create a job, add a candidate, and submit the first profile to
                 see the orchestration flow here.
               </p>
             ) : (
-              applications.slice(0, 6).map((application) => (
-                <Link
-                  key={application.id}
-                  href={`/applications/${application.id}`}
-                  className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[color:var(--accent)]"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-base font-semibold">
-                        {application.candidate?.name ?? "Candidate"} / {application.job?.title ?? "Role"}
-                      </p>
-                      <p className="mt-1 text-sm text-[color:var(--muted)]">
-                        Updated {formatDate(application.updated_at)}
-                      </p>
+              activity.map((item) => {
+                const href =
+                  item.application_id
+                    ? `/applications/${item.application_id}`
+                    : item.job_id
+                      ? `/jobs/${item.job_id}`
+                      : "/dashboard";
+                return (
+                  <Link
+                    key={`${item.type}-${item.id}`}
+                    href={href}
+                    className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[color:var(--accent)]"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-base font-semibold">{item.title}</p>
+                        <p className="mt-1 text-sm text-[color:var(--muted)]">{item.description}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[color:var(--muted-soft)]">
+                          {formatDate(item.timestamp)}
+                        </p>
+                      </div>
+                      {item.status ? <Badge>{titleCase(item.status)}</Badge> : null}
                     </div>
-                    <Badge>{titleCase(application.status)}</Badge>
-                  </div>
-                </Link>
-              ))
+                  </Link>
+                );
+              })
             )}
           </div>
         </Card>
@@ -188,14 +176,22 @@ export default function DashboardPage() {
           <p className="eyebrow">Jobs snapshot</p>
           <CardTitle className="mt-2 text-3xl">Roles needing attention</CardTitle>
           <div className="mt-6 grid gap-3">
-            {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading jobs...</p>
+            {isLoading ? (
+              Array.from({ length: 4 }, (_, index) => (
+                <div
+                  key={index}
+                  className="rounded-[1.25rem] border border-[color:var(--line)] bg-white/75 p-4"
+                >
+                  <Skeleton className="h-5 w-36" />
+                  <Skeleton className="mt-3 h-4 w-28" />
+                </div>
+              ))
             ) : jobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No jobs have been posted yet. Create the first role to start the recruiter workflow.
               </p>
             ) : (
-              jobs.slice(0, 5).map((job) => (
+              jobs.map((job) => (
                 <Link
                   key={job.id}
                   href={`/jobs/${job.id}`}

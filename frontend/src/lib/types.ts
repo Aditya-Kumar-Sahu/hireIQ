@@ -54,6 +54,28 @@ export type CandidateSearchResult = {
   similarity_score: number;
 };
 
+export type DashboardStats = {
+  total_jobs: number;
+  active_jobs: number;
+  total_candidates: number;
+  total_applications: number;
+  average_score: number;
+  offered_count: number;
+  status_counts: Record<string, number>;
+};
+
+export type DashboardActivityItem = {
+  id: string;
+  type: "application" | "agent_run" | "job";
+  title: string;
+  description: string;
+  status: string | null;
+  timestamp: string;
+  application_id: string | null;
+  job_id: string | null;
+  candidate_id: string | null;
+};
+
 export type SimilarJobResult = {
   job: Job;
   similarity_score: number;
@@ -82,6 +104,19 @@ export type ApplicationCandidateSummary = {
   linkedin_url: string | null;
 };
 
+export type AssessmentQuestion = {
+  type: string;
+  question: string;
+  evaluation_criteria: string[];
+  estimated_time_minutes: number;
+};
+
+export type AssessmentResult = {
+  questions: AssessmentQuestion[];
+  focus_areas: string[];
+  question_provenance: Array<Record<string, unknown>>;
+};
+
 export type AgentRun = {
   id: string;
   agent_name: string;
@@ -102,7 +137,7 @@ export type Application = {
   status: ApplicationStatus;
   score: number | null;
   screening_notes: string | null;
-  assessment_result: Record<string, unknown> | null;
+  assessment_result: AssessmentResult | null;
   scheduled_at: string | null;
   offer_text: string | null;
   created_at: string;
@@ -148,4 +183,10 @@ export type GoogleCalendarConnection = {
   connected: boolean;
   connected_email: string | null;
   calendar_id: string | null;
+};
+
+export type StreamEvent = {
+  event: string;
+  timestamp: string;
+  data: Record<string, unknown>;
 };

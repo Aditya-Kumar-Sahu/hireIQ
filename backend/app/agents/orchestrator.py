@@ -65,6 +65,40 @@ class ApplicationOrchestrator:
             {"application_id": str(application.id), "status": application.status.value},
         )
 
+    async def run_single_agent(
+        self,
+        application_id: UUID,
+        agent_name: AgentName,
+        *,
+        availability_slots: list[str] | None = None,
+        compensation_details: str | None = None,
+    ) -> AgentRun | None:
+        """Run a single agent for an existing application and append a fresh run record."""
+        application = await self.db.scalar(
+            select(Application)
+            .options(
+                selectinload(Application.job).selectinload(Job.company),
+                selectinload(Application.candidate),
+                selectinload(Application.agent_runs),
+            )
+            .where(Application.id == application_id)
+        )
+        if application is None:
+            return None
+
+        self.calendar = GoogleCalendarService(db=self.db, company=application.job.company)
+        context = await self._build_context(application)
+        if availability_slots is not None:
+            context.scheduler_slots = availability_slots
+        if compensation_details is not None:
+            context.compensation_details = compensation_details
+
+        target_status = {
+            AgentName.SCHEDULER: ApplicationStatus.SCHEDULED,
+            AgentName.OFFER_WRITER: ApplicationStatus.OFFERED,
+        }[agent_name]
+        return await self._run_agent(application, agent_name, target_status, context)
+
     async def _build_context(self, application: Application) -> PipelineContext:
         """Assemble the shared pipeline context for all four agents."""
         insights = await self.screening.build_insights(application)
@@ -87,6 +121,7 @@ class ApplicationOrchestrator:
             similar_jobs=insights.similar_jobs,
             similar_applications=insights.similar_applications,
             scheduler_slots=await self.calendar.suggest_slots(),
+            compensation_details=None,
             delivery_mode=self.email.delivery_mode(),
             from_email=self.email.from_email,
         )
@@ -99,7 +134,7 @@ class ApplicationOrchestrator:
         agent_name: AgentName,
         target_status: ApplicationStatus,
         context: PipelineContext,
-    ) -> None:
+    ) -> AgentRun:
         """Execute one agent, persist its run, and publish progress events."""
         stage_name = {
             AgentName.CV_SCREENER: "screening",
@@ -108,7 +143,7 @@ class ApplicationOrchestrator:
             AgentName.OFFER_WRITER: "writing_offer",
         }[agent_name]
 
-        application.status = target_status
+        application.status = self._next_application_status(application.status, target_status)
         agent_run = AgentRun(
             application_id=application.id,
             agent_name=agent_name,
@@ -149,6 +184,7 @@ class ApplicationOrchestrator:
                     "application_status": application.status.value,
                 },
             )
+            return agent_run
         except Exception as exc:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error_message = str(exc)
@@ -165,6 +201,23 @@ class ApplicationOrchestrator:
                 },
             )
             raise
+
+    @staticmethod
+    def _next_application_status(
+        current_status: ApplicationStatus,
+        target_status: ApplicationStatus,
+    ) -> ApplicationStatus:
+        """Avoid downgrading an application when rerunning later-stage agents."""
+        order = {
+            ApplicationStatus.SUBMITTED: 0,
+            ApplicationStatus.SCREENING: 1,
+            ApplicationStatus.ASSESSED: 2,
+            ApplicationStatus.SCHEDULED: 3,
+            ApplicationStatus.OFFERED: 4,
+            ApplicationStatus.HIRED: 5,
+            ApplicationStatus.REJECTED: 5,
+        }
+        return target_status if order[target_status] > order[current_status] else current_status
 
     async def _attach_side_effects(
         self,
