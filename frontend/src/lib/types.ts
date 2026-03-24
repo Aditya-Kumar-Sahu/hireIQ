@@ -186,6 +186,7 @@ export type GoogleCalendarConnection = {
 };
 
 export type StreamEvent = {
+  id: string;
   event: string;
   timestamp: string;
   data: Record<string, unknown>;

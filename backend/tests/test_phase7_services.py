@@ -115,8 +115,10 @@ async def test_progress_service_publishes_lists_and_formats_events(
     events = await service.list_events(application_id)
 
     assert [event["event"] for event in events] == ["queued", "complete"]
+    assert all("id" in event for event in events)
     formatted = service._format_sse(events[0])
-    assert formatted.startswith("event: queued")
+    assert formatted.startswith(f"id: {events[0]['id']}")
+    assert "event: queued" in formatted
     assert '"status": "submitted"' in formatted
 
 

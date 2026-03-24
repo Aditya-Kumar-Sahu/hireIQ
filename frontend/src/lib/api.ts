@@ -1,4 +1,5 @@
 import type {
+  AgentRun,
   Application,
   ApplicationDetail,
   DashboardActivityItem,
@@ -255,7 +256,7 @@ export function rerunScheduler(
   applicationId: string,
   input: { availability_slots: string[] },
 ) {
-  return request(`/api/v1/applications/${applicationId}/schedule`, {
+  return request<AgentRun>(`/api/v1/applications/${applicationId}/schedule`, {
     token,
     method: "POST",
     body: input,
@@ -267,7 +268,7 @@ export function rerunOfferWriter(
   applicationId: string,
   input: { compensation_details?: string },
 ) {
-  return request(`/api/v1/applications/${applicationId}/offer`, {
+  return request<AgentRun>(`/api/v1/applications/${applicationId}/offer`, {
     token,
     method: "POST",
     body: input,

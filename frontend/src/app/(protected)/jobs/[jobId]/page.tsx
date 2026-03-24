@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { KanbanBoard } from "@/components/jobs/kanban-board";
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,11 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApplications } from "@/hooks/use-applications";
 import { useCandidates } from "@/hooks/use-candidates";
 import { useJob } from "@/hooks/use-jobs";
-import {
-  createApplication,
-  getApiErrorMessage,
-  updateJob,
-} from "@/lib/api";
+import { createApplication, getApiErrorMessage, updateApplicationStatus, updateJob } from "@/lib/api";
 import type { Application, Candidate, JobStatus } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
@@ -31,6 +28,7 @@ const columns: Array<{ status: Application["status"]; label: string }> = [
   { status: "rejected", label: "Rejected" },
 ];
 
+const EMPTY_APPLICATIONS: Application[] = [];
 const EMPTY_CANDIDATES: Candidate[] = [];
 
 export default function JobDetailPage() {
@@ -47,6 +45,8 @@ export default function JobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [submissionStatusMessage, setSubmissionStatusMessage] = useState<string | null>(null);
+  const [optimisticApplications, setOptimisticApplications] = useState<Application[]>([]);
+  const [movingApplicationId, setMovingApplicationId] = useState<string | null>(null);
 
   const createApplicationMutation = useMutation({
     mutationFn: (input: { job_id: string; candidate_id: string }) => createApplication(token, input),
@@ -54,9 +54,13 @@ export default function JobDetailPage() {
   const updateJobMutation = useMutation({
     mutationFn: (status: JobStatus) => updateJob(token, jobId!, { status }),
   });
+  const updateApplicationStatusMutation = useMutation({
+    mutationFn: (input: { applicationId: string; status: Application["status"] }) =>
+      updateApplicationStatus(token, input.applicationId, input.status),
+  });
 
   const job = jobQuery.data;
-  const applications = applicationsQuery.data?.items ?? [];
+  const applications = applicationsQuery.data?.items ?? EMPTY_APPLICATIONS;
   const candidates = candidatesQuery.data?.items ?? EMPTY_CANDIDATES;
   const loading = jobQuery.isLoading || applicationsQuery.isLoading || candidatesQuery.isLoading;
   const queryError = jobQuery.error ?? applicationsQuery.error ?? candidatesQuery.error;
@@ -72,6 +76,10 @@ export default function JobDetailPage() {
       setSelectedCandidateId(candidates[0].id);
     }
   }, [candidates, selectedCandidateId]);
+
+  useEffect(() => {
+    setOptimisticApplications(applications);
+  }, [applications]);
 
   if (loading) {
     return (
@@ -157,6 +165,39 @@ export default function JobDetailPage() {
           422: "Please review the selected status and try again.",
         }),
       );
+    }
+  }
+
+  async function handleMoveApplication(applicationId: string, nextStatus: Application["status"]) {
+    const previousApplications = optimisticApplications;
+    setError(null);
+    setMovingApplicationId(applicationId);
+    setOptimisticApplications((current) =>
+      current.map((application) =>
+        application.id === applicationId
+          ? {
+              ...application,
+              status: nextStatus,
+              updated_at: new Date().toISOString(),
+            }
+          : application,
+      ),
+    );
+
+    try {
+      await updateApplicationStatusMutation.mutateAsync({ applicationId, status: nextStatus });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
+    } catch (moveError) {
+      setOptimisticApplications(previousApplications);
+      setError(
+        getApiErrorMessage(moveError, "Unable to move application", {
+          401: "Your session expired. Please log in again.",
+          404: "That application could not be found.",
+          422: "That status change could not be applied.",
+        }),
+      );
+    } finally {
+      setMovingApplicationId(null);
     }
   }
 
@@ -274,48 +315,12 @@ export default function JobDetailPage() {
           </p>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4">
-          {columns.map((column) => {
-            const items = applications.filter((application) => application.status === column.status);
-            return (
-              <Card key={column.status} className="h-full">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-semibold">{column.label}</p>
-                    <p className="text-sm text-[color:var(--muted)]">{items.length} cards</p>
-                  </div>
-                  <Badge>{items.length}</Badge>
-                </div>
-
-                <div className="mt-4 grid gap-3">
-                  {items.length === 0 ? (
-                    <div className="rounded-[1.2rem] border border-dashed border-[color:var(--line)] px-4 py-5 text-sm text-[color:var(--muted)]">
-                      Nothing in this stage yet.
-                    </div>
-                  ) : (
-                    items.map((application) => (
-                      <Link
-                        key={application.id}
-                        href={`/applications/${application.id}`}
-                        className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4 transition hover:border-[color:var(--accent)]"
-                      >
-                        <p className="font-semibold">
-                          {application.candidate?.name ?? "Candidate"}
-                        </p>
-                        <p className="mt-1 text-sm text-[color:var(--muted)]">
-                          Score {application.score?.toFixed(2) ?? "Pending"}
-                        </p>
-                        <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[color:var(--muted-soft)]">
-                          {formatDate(application.updated_at)}
-                        </p>
-                      </Link>
-                    ))
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+        <KanbanBoard
+          columns={columns}
+          applications={optimisticApplications}
+          movingApplicationId={movingApplicationId}
+          onMoveApplication={handleMoveApplication}
+        />
       </section>
     </div>
   );

@@ -2,16 +2,20 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useApplication, useSimilarJobsForApplication } from "@/hooks/use-applications";
 import { useApplicationStatusStream } from "@/hooks/use-sse";
-import { getApiErrorMessage } from "@/lib/api";
+import { getApiErrorMessage, rerunOfferWriter, rerunScheduler } from "@/lib/api";
 import type { AssessmentQuestion, StreamEvent } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
@@ -421,10 +425,34 @@ export default function ApplicationDetailPage() {
     typeof params.applicationId === "string"
       ? params.applicationId
       : params.applicationId?.[0];
+  const queryClient = useQueryClient();
   const { token } = useSession();
   const applicationQuery = useApplication(token, applicationId);
   const similarJobsQuery = useSimilarJobsForApplication(token, applicationId);
   const { events, streamStatus } = useApplicationStatusStream(applicationId);
+  const [slotsText, setSlotsText] = useState("");
+  const [compensationDetails, setCompensationDetails] = useState("");
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const rerunSchedulerMutation = useMutation({
+    mutationFn: (availabilitySlots: string[]) =>
+      rerunScheduler(token, applicationId!, { availability_slots: availabilitySlots }),
+  });
+  const rerunOfferWriterMutation = useMutation({
+    mutationFn: (details: string) =>
+      rerunOfferWriter(token, applicationId!, {
+        compensation_details: details || undefined,
+      }),
+  });
+
+  useEffect(() => {
+    const schedulerRun = applicationQuery.data?.agent_runs.find((run) => run.agent_name === "scheduler");
+    const proposedSlots =
+      (schedulerRun?.output?.proposed_slots as string[] | undefined) ?? [];
+    if (!slotsText && proposedSlots.length > 0) {
+      setSlotsText(proposedSlots.join("\n"));
+    }
+  }, [applicationQuery.data?.agent_runs, slotsText]);
 
   if (applicationQuery.isLoading) {
     return (
@@ -479,6 +507,53 @@ export default function ApplicationDetailPage() {
   const assessmentQuestions = application.assessment_result?.questions ?? [];
   const questionProvenance = application.assessment_result?.question_provenance ?? [];
 
+  async function handleSchedulerRerun(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const availabilitySlots = slotsText
+      .split("\n")
+      .map((slot) => slot.trim())
+      .filter(Boolean);
+    if (availabilitySlots.length === 0) {
+      setActionError("Add at least one availability slot before rerunning the scheduler.");
+      return;
+    }
+
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      await rerunSchedulerMutation.mutateAsync(availabilitySlots);
+      await queryClient.invalidateQueries({ queryKey: ["applications", "detail", token, applicationId] });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
+      setActionNotice("Scheduler rerun completed and a new agent run was appended.");
+    } catch (error) {
+      setActionError(
+        getApiErrorMessage(error, "Unable to rerun scheduler", {
+          401: "Your session expired. Please log in again.",
+          404: "That application could not be found.",
+        }),
+      );
+    }
+  }
+
+  async function handleOfferRerun(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      await rerunOfferWriterMutation.mutateAsync(compensationDetails.trim());
+      await queryClient.invalidateQueries({ queryKey: ["applications", "detail", token, applicationId] });
+      await queryClient.invalidateQueries({ queryKey: ["applications"] });
+      setActionNotice("Offer writer rerun completed and a new agent run was appended.");
+    } catch (error) {
+      setActionError(
+        getApiErrorMessage(error, "Unable to rerun offer writer", {
+          401: "Your session expired. Please log in again.",
+          404: "That application could not be found.",
+        }),
+      );
+    }
+  }
+
   return (
     <div className="space-y-8">
       <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -503,6 +578,18 @@ export default function ApplicationDetailPage() {
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
           <CardTitle className="text-xl">Application issue</CardTitle>
           <CardDescription>{pageError}</CardDescription>
+        </Card>
+      ) : null}
+      {actionError ? (
+        <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
+          <CardTitle className="text-xl">Workflow action issue</CardTitle>
+          <CardDescription>{actionError}</CardDescription>
+        </Card>
+      ) : null}
+      {actionNotice ? (
+        <Card className="border-[rgba(17,118,89,0.14)] bg-[rgba(239,252,247,0.9)]">
+          <CardTitle className="text-xl">Workflow updated</CardTitle>
+          <CardDescription>{actionNotice}</CardDescription>
         </Card>
       ) : null}
 
@@ -589,7 +676,7 @@ export default function ApplicationDetailPage() {
                 </p>
               </div>
             ) : (
-              events.map((event) => <TimelineEventCard key={`${event.event}-${event.timestamp}`} event={event} />)
+              events.map((event) => <TimelineEventCard key={event.id} event={event} />)
             )}
           </div>
         </Card>
@@ -620,6 +707,62 @@ export default function ApplicationDetailPage() {
           <p className="eyebrow">Scheduling + Offer</p>
           <CardTitle className="mt-2 text-3xl">Delivered artifacts</CardTitle>
           <div className="mt-6 grid gap-4">
+            <form
+              className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
+              onSubmit={handleSchedulerRerun}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[color:var(--muted)]">Rerun scheduler</p>
+                  <p className="mt-1 text-sm text-[color:var(--muted)]">
+                    Enter one availability slot per line to create a fresh scheduling run.
+                  </p>
+                </div>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  disabled={rerunSchedulerMutation.isPending}
+                >
+                  {rerunSchedulerMutation.isPending ? "Rerunning..." : "Run scheduler"}
+                </Button>
+              </div>
+              <Textarea
+                className="mt-4"
+                value={slotsText}
+                onChange={(event) => setSlotsText(event.target.value)}
+                placeholder="2026-03-30T09:00:00+00:00"
+                disabled={rerunSchedulerMutation.isPending}
+              />
+            </form>
+
+            <form
+              className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4"
+              onSubmit={handleOfferRerun}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-[color:var(--muted)]">Rerun offer writer</p>
+                  <p className="mt-1 text-sm text-[color:var(--muted)]">
+                    Provide compensation context to draft a fresh offer communication.
+                  </p>
+                </div>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  disabled={rerunOfferWriterMutation.isPending}
+                >
+                  {rerunOfferWriterMutation.isPending ? "Rerunning..." : "Run offer writer"}
+                </Button>
+              </div>
+              <Input
+                className="mt-4"
+                value={compensationDetails}
+                onChange={(event) => setCompensationDetails(event.target.value)}
+                placeholder="Base salary, equity, joining bonus, or notice-period details"
+                disabled={rerunOfferWriterMutation.isPending}
+              />
+            </form>
+
             <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--muted)]">
                 <TimerReset className="h-4 w-4" />

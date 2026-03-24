@@ -6,7 +6,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from typing import AsyncIterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Request
 
@@ -30,6 +30,7 @@ class ApplicationProgressService:
     async def publish(self, application_id: UUID, event: str, data: dict[str, object]) -> None:
         """Append a progress event to Redis history."""
         payload = {
+            "id": str(uuid4()),
             "event": event,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "data": data,
@@ -63,4 +64,8 @@ class ApplicationProgressService:
     @staticmethod
     def _format_sse(payload: dict[str, object]) -> str:
         """Convert an event payload into SSE wire format."""
-        return f"event: {payload['event']}\ndata: {json.dumps(payload, default=str)}\n\n"
+        return (
+            f"id: {payload['id']}\n"
+            f"event: {payload['event']}\n"
+            f"data: {json.dumps(payload, default=str)}\n\n"
+        )

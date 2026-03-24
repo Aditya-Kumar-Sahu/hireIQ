@@ -240,6 +240,7 @@ def test_application_status_sse_stream_replays_pipeline_events(
     assert response.status_code == 200
     body = response.text
 
+    assert "id: " in body
     assert "event: queued" in body
     assert "event: stage" in body
     assert "cv_screener" in body

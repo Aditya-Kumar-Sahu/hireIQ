@@ -26,14 +26,7 @@ export function useApplicationStatusStream(applicationId: string | undefined) {
       try {
         const payload = JSON.parse(message.data) as StreamEvent;
         setEvents((current) => {
-          if (
-            current.some(
-              (item) =>
-                item.event === payload.event &&
-                item.timestamp === payload.timestamp &&
-                JSON.stringify(item.data) === JSON.stringify(payload.data),
-            )
-          ) {
+          if (current.some((item) => item.id === payload.id)) {
             return current;
           }
           return [...current, payload];
