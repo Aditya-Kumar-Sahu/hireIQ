@@ -33,6 +33,7 @@ export type Job = {
   status: JobStatus;
   has_embedding: boolean;
   created_at: string;
+  updated_at: string;
 };
 
 export type Candidate = {

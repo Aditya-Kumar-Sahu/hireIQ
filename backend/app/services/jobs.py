@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -27,6 +28,7 @@ def _to_job_response(job: Job) -> JobResponse:
         status=job.status,
         has_embedding=job.embedding is not None,
         created_at=job.created_at,
+        updated_at=job.updated_at,
     )
 
 
@@ -44,8 +46,11 @@ class JobService:
         return "\n".join([title.strip(), description.strip(), requirements.strip()])
 
     async def create_job(self, payload: JobCreate) -> JobResponse:
+        now = datetime.now(timezone.utc)
         job = Job(
             company_id=self.user.company_id,
+            created_at=now,
+            updated_at=now,
             embedding=await self.embedding_service.embed_job_text(
                 self.build_embedding_text(
                     payload.title,

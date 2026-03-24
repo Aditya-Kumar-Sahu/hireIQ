@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import fitz
@@ -72,6 +73,35 @@ async def test_embedding_service_is_cached_and_stable() -> None:
     assert len(first) == service.dimension
     assert first == second
     assert await service.redis.exists(cache_key) == 1
+
+
+@pytest.mark.asyncio
+async def test_job_embedding_chunks_run_in_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Job chunk embedding should fan out work concurrently before averaging."""
+
+    service = EmbeddingService()
+    state = {"in_flight": 0, "max_in_flight": 0}
+
+    async def fake_embed_text(self: EmbeddingService, text: str) -> list[float]:
+        state["in_flight"] += 1
+        state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
+        await asyncio.sleep(0.01)
+        state["in_flight"] -= 1
+        return [1.0] * self.dimension
+
+    monkeypatch.setattr(EmbeddingService, "embed_text", fake_embed_text)
+    monkeypatch.setattr(
+        service,
+        "chunk_text",
+        lambda text: ["chunk one", "chunk two", "chunk three"],
+    )
+
+    embedding = await service.embed_job_text("long job description")
+
+    assert len(embedding) == service.dimension
+    assert state["max_in_flight"] > 1
 
 
 def test_phase3_embeddings_and_semantic_search_flow(

@@ -30,6 +30,27 @@ services:
     restart: unless-stopped
     networks:
       - hireiq-network
+
+  frontend-e2e:
+    image: mcr.microsoft.com/playwright:v1.58.2-jammy
+    container_name: hireiq-frontend-e2e
+    working_dir: /workspace/frontend
+    command: >
+      sh -lc "tail -f /dev/null"
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend_e2e_node_modules:/workspace/frontend/node_modules
+    environment:
+      - PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100
+      - NEXT_PUBLIC_API_URL=http://api:8000
+      - INTERNAL_API_URL=http://api:8000
+      - CI=1
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - hireiq-network
   # ── FastAPI Backend ──────────────────────────────────────────────
   api:
     build:
@@ -99,6 +120,8 @@ services:
 
 volumes:
   frontend_node_modules:
+    driver: local
+  frontend_e2e_node_modules:
     driver: local
   pgdata:
     driver: local

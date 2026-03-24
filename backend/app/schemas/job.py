@@ -43,6 +43,7 @@ class JobResponse(BaseModel):
     status: JobStatus
     has_embedding: bool = False
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

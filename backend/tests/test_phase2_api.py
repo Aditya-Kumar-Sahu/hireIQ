@@ -125,6 +125,7 @@ def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
     job_payload = job_response.json()["data"]
     assert job_payload["title"] == "Backend Engineer"
     assert job_payload["status"] == "draft"
+    assert job_payload["updated_at"] == job_payload["created_at"]
 
     candidate_response = client.post(
         "/api/v1/candidates",
@@ -309,6 +310,7 @@ def test_job_update_soft_delete_and_status_filtering(client: TestClient) -> None
     assert updated_job.status_code == 200
     assert updated_job.json()["data"]["status"] == "active"
     assert updated_job.json()["data"]["title"] == "Senior Frontend Engineer"
+    assert updated_job.json()["data"]["updated_at"] != created_job["updated_at"]
 
     active_jobs = client.get("/api/v1/jobs?page=1&limit=10&status=active", headers=headers)
     assert active_jobs.status_code == 200

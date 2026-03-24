@@ -85,7 +85,7 @@ class EmbeddingService:
         chunks = self.chunk_text(text)
         if not chunks:
             return self._local_embedding("")
-        embeddings = [await self.embed_text(chunk) for chunk in chunks]
+        embeddings = await asyncio.gather(*(self.embed_text(chunk) for chunk in chunks))
         return [mean(values) for values in zip(*embeddings, strict=True)]
 
     def _remote_embed(self, text: str) -> list[float]:

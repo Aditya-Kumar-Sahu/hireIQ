@@ -2,6 +2,19 @@
 
 This runbook covers the final production rollout for the backend on Railway and the frontend on Vercel.
 
+## Local Container Validation
+
+Run the full pre-deploy validation flow from the repo root:
+
+1. `docker compose up -d --build db redis api frontend frontend-e2e`
+2. `docker compose exec api alembic upgrade head`
+3. `docker compose exec api python -m pytest -q`
+4. `docker compose exec frontend npm run lint`
+5. `docker compose exec frontend npm run build`
+6. `docker compose exec frontend-e2e sh -lc "npm ci && npm run e2e"`
+
+On Windows PowerShell, the same sequence is wrapped in [scripts/compose.ps1](/D:/Projects/hireIQ/scripts/compose.ps1) via `.\scripts\compose.ps1 -Task validate`.
+
 ## Backend / Railway
 
 ### Create the Railway service

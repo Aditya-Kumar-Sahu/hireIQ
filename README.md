@@ -56,7 +56,19 @@
 
 ### Screenshots
 
-> _Screenshots will be added after Phase 5 (Frontend) is complete._
+Current UI coverage in this repo includes:
+
+- Recruiter dashboard with server-side metrics and recent activity
+- Job detail drag-and-drop Kanban with optimistic status changes
+- Application detail live SSE feed with explicit fallback visibility and targeted scheduler/offer reruns
+
+### Current Implementation Status (2026-03-24)
+
+- Local validation is container-first: `docker compose up -d --build db redis api frontend frontend-e2e`
+- Backend checks run through `docker compose exec api alembic upgrade head` and `docker compose exec api python -m pytest -q`
+- Frontend checks run through `docker compose exec frontend npm run lint`, `docker compose exec frontend npm run build`, and `docker compose exec frontend-e2e sh -lc "npm ci && npm run e2e"`
+- Dashboard aggregates, candidate tenancy, stable SSE event IDs, fallback visibility, drag-and-drop Kanban, and scheduler/offer reruns are implemented
+- Job embeddings are still averaged across chunks as a pragmatic v1 trade-off; the repo does not yet store per-chunk late-interaction vectors
 
 ---
 
@@ -414,6 +426,12 @@ HireIQ uses Retrieval-Augmented Generation (RAG) to ground agent decisions in re
 ### Caching Strategy
 
 - **Redis TTL cache (24h)**: Before calling Gemini's embedding API, compute a SHA-256 hash of the input text. Check Redis for a cached embedding. On miss, call the API and cache the result. This eliminates redundant embedding calls for identical text.
+
+### Current Trade-off
+
+- Long job descriptions are chunked and embedded in parallel, then averaged into the single `jobs.embedding` vector used today.
+- This keeps the schema simple and fits the current pgvector setup, but it is intentionally less expressive than storing and retrieving per-chunk vectors.
+- The late-interaction/chunk-store approach is deferred until higher-priority workflow and product gaps are fully closed.
 
 ### Vector Index Configuration
 
