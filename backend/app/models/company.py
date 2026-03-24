@@ -51,6 +51,11 @@ class Company(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    candidates: Mapped[list["Candidate"]] = relationship(  # noqa: F821
+        "Candidate",
+        back_populates="company",
+        lazy="selectin",
+    )
     users: Mapped[list["User"]] = relationship(  # noqa: F821
         "User",
         back_populates="company",

@@ -24,6 +24,7 @@ class PipelineContext(BaseModel):
     candidate_email: str
     candidate_resume_text: str
     job_title: str
+    job_seniority: str
     job_description: str
     job_requirements: str
     similarity_score: float
@@ -54,8 +55,15 @@ class CVScreenerOutput(BaseModel):
     experience_years: int
 
 
+class AssessmentQuestion(BaseModel):
+    type: str
+    question: str
+    evaluation_criteria: list[str]
+    estimated_time_minutes: int
+
+
 class AssessorOutput(BaseModel):
-    questions: list[str]
+    questions: list[AssessmentQuestion]
     focus_areas: list[str]
     question_provenance: list[dict[str, object]]
 
@@ -102,8 +110,15 @@ class CrewAIPipelineRunner:
         return {
             AgentName.CV_SCREENER: Agent(
                 role="Senior Talent Acquisition Analyst",
-                goal="Evaluate resume fit, identify skill gaps, and produce an auditable recommendation.",
-                backstory="You specialize in technical recruiting and structured candidate screening.",
+                goal=(
+                    "Evaluate how well a candidate's resume matches the job requirements, producing "
+                    "a quantified fit score with detailed skill gap analysis and an auditable recommendation."
+                ),
+                backstory=(
+                    "You have 15 years of experience in technical recruiting at FAANG companies. "
+                    "You know the difference between genuine expertise and keyword stuffing. You assess "
+                    "not just skill overlap, but career trajectory, project complexity, and cultural fit indicators."
+                ),
                 llm=llm,
                 verbose=False,
                 allow_delegation=False,
@@ -116,8 +131,16 @@ class CrewAIPipelineRunner:
             ),
             AgentName.ASSESSOR: Agent(
                 role="Technical Interview Assessor",
-                goal="Create sharp, role-specific interview questions from the job context and skill gaps.",
-                backstory="You translate role requirements into focused technical assessment questions.",
+                goal=(
+                    "Design a seniority-aware interview plan with sharp, role-specific questions, "
+                    "evaluation criteria, and provenance tied to the candidate's strengths and gaps."
+                ),
+                backstory=(
+                    "You are a principal engineer who has conducted 1,000+ technical interviews across "
+                    "backend, frontend, platform, and AI roles. You calibrate depth based on seniority, "
+                    "separate memorized buzzwords from operational judgment, and write questions that help "
+                    "hiring teams assess both technical rigor and real-world tradeoff thinking."
+                ),
                 llm=llm,
                 verbose=False,
                 allow_delegation=False,
@@ -129,7 +152,10 @@ class CrewAIPipelineRunner:
             AgentName.SCHEDULER: Agent(
                 role="Interview Scheduling Coordinator",
                 goal="Propose polished interview slots and a draft outreach message.",
-                backstory="You coordinate interviews with speed and clarity.",
+                backstory=(
+                    "You are an elite recruitment coordinator at a top-tier company. You balance speed, "
+                    "candidate experience, and calendar realism while keeping communications crisp and warm."
+                ),
                 llm=llm,
                 verbose=False,
                 allow_delegation=False,
@@ -142,7 +168,11 @@ class CrewAIPipelineRunner:
             AgentName.OFFER_WRITER: Agent(
                 role="Offer Communications Specialist",
                 goal="Draft a personalized offer note grounded in the role and screening outcome.",
-                backstory="You write warm, structured recruiting communications.",
+                backstory=(
+                    "You are a VP of People who has written hundreds of offer letters and candidate "
+                    "communications. You translate hiring enthusiasm into clear, credible language that "
+                    "reflects company culture without overpromising."
+                ),
                 llm=llm,
                 verbose=False,
                 allow_delegation=False,
@@ -204,8 +234,10 @@ class CrewAIPipelineRunner:
         if agent_name == AgentName.ASSESSOR:
             return Task(
                 description=(
-                    "Generate focused interview questions for this candidate and role. "
-                    "Return JSON with questions, focus_areas, and question_provenance."
+                    "Generate a seniority-aware interview plan for this candidate and role. Tailor the "
+                    "difficulty to the job_seniority provided in the application context. Return JSON with questions, focus_areas, "
+                    "and question_provenance. Each question must include type, question, evaluation_criteria, "
+                    "and estimated_time_minutes."
                 ),
                 expected_output="Structured JSON assessment plan.",
                 output_json=AssessorOutput,
@@ -305,28 +337,58 @@ class CrewAIPipelineRunner:
             ).model_dump()
         if agent_name == AgentName.ASSESSOR:
             focus_areas = context.missing_skills or context.matched_skills[:2] or ["Problem Solving"]
+            seniority_question = (
+                "Describe the highest-leverage architectural decision you made and the tradeoffs you considered."
+                if context.job_seniority in {"senior", "lead"}
+                else "Walk through a recent feature you shipped and the implementation decisions you made."
+            )
             questions = [
-                f"Walk through a project where you used {context.job_title}.",
-                f"How would you approach a challenge involving {focus_areas[0]}?",
-                "How do you balance delivery speed with maintainability in production systems?",
+                AssessmentQuestion(
+                    type="experience_deep_dive",
+                    question=f"Walk through a project where you used {context.job_title} responsibilities in practice.",
+                    evaluation_criteria=[
+                        "Explains scope, ownership, and measurable outcomes",
+                        "Connects past work to this role's technical demands",
+                        "Demonstrates concrete hands-on decision making",
+                    ],
+                    estimated_time_minutes=12,
+                ),
+                AssessmentQuestion(
+                    type="skill_gap_probe",
+                    question=f"How would you approach a challenge involving {focus_areas[0]} in this role?",
+                    evaluation_criteria=[
+                        "Shows structured problem solving",
+                        f"Demonstrates working depth in {focus_areas[0]}",
+                        "Surfaces tradeoffs, risks, and validation strategy",
+                    ],
+                    estimated_time_minutes=10,
+                ),
+                AssessmentQuestion(
+                    type="system_design" if context.job_seniority in {"senior", "lead"} else "delivery_judgment",
+                    question=seniority_question,
+                    evaluation_criteria=[
+                        "Balances speed, reliability, and maintainability",
+                        "Communicates technical tradeoffs clearly",
+                        "Adjusts depth appropriately for the stated seniority",
+                    ],
+                    estimated_time_minutes=15 if context.job_seniority in {"senior", "lead"} else 10,
+                ),
             ]
             question_provenance = [
                 {
-                    "question": questions[0],
+                    "question": questions[0].question,
                     "derived_from": "job_title",
                     "source_value": context.job_title,
                 },
                 {
-                    "question": questions[1],
+                    "question": questions[1].question,
                     "derived_from": "skill_gap",
                     "source_value": focus_areas[0],
                 },
                 {
-                    "question": questions[2],
-                    "derived_from": "screening_risk",
-                    "source_value": context.screening_risks[0]
-                    if context.screening_risks
-                    else "general engineering judgment",
+                    "question": questions[2].question,
+                    "derived_from": "job_seniority",
+                    "source_value": context.job_seniority,
                 },
             ]
             return AssessorOutput(

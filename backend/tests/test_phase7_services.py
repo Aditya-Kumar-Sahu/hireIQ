@@ -18,7 +18,9 @@ from pydantic import ValidationError
 from app.agents.crewai_runner import CVScreenerOutput, CrewAIPipelineRunner, PipelineContext
 from app.core.config import Settings, settings
 from app.core.exceptions import ServiceUnavailableException
+from app.models.agent_run import AgentName
 from app.rag.embeddings import EmbeddingService
+from app.services.screening import SkillExtractionService
 from app.services.ats_webhooks import ATSWebhookService
 from app.services.calendar import BusyWindow, GoogleCalendarService
 from app.services.email import ResendEmailService
@@ -66,6 +68,7 @@ def _build_context() -> PipelineContext:
         candidate_email="casey@example.com",
         candidate_resume_text="Python FastAPI PostgreSQL Redis",
         job_title="Platform Engineer",
+        job_seniority="senior",
         job_description="Build APIs and delivery workflows.",
         job_requirements="Python FastAPI PostgreSQL Redis",
         similarity_score=0.82,
@@ -130,6 +133,7 @@ def test_recruitment_tools_serialize_pipeline_context() -> None:
     delivery_context = json.loads(EmailDeliveryTool(context)._run())
 
     assert application_context["job_title"] == "Platform Engineer"
+    assert application_context["job_seniority"] == "senior"
     assert similar_jobs[0]["title"] == "Backend Engineer"
     assert similar_applications[0]["candidate_name"] == "Earlier Casey"
     assert skill_gap["matched_skills"] == ["Python", "FastAPI"]
@@ -416,6 +420,42 @@ def test_crewai_runner_parse_output_and_recommendation_logic() -> None:
     assert CVScreenerOutput.__annotations__["score"] is float
     assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=123, prompt_tokens=100, completion_tokens=23, successful_requests=1))) == 123
     assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=0, prompt_tokens=0, completion_tokens=0, successful_requests=0))) is None
+    assessor_output = runner._fallback_output(AgentName.ASSESSOR, context)
+    assert assessor_output["questions"][0]["type"] == "experience_deep_dive"
+    assert assessor_output["questions"][0]["evaluation_criteria"]
+    assert assessor_output["question_provenance"][2]["derived_from"] == "job_seniority"
+
+
+@pytest.mark.asyncio
+async def test_skill_extraction_service_uses_gemini_output_and_normalizes_aliases() -> None:
+    """Gemini skill extraction should normalize aliases back to the supported taxonomy."""
+    service = SkillExtractionService()
+
+    class FakeModels:
+        def generate_content(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(text='{"skills": ["python", "k8s", "React"]}')
+
+    service._client = SimpleNamespace(models=FakeModels())
+
+    skills = await service.extract_skills("Python React Kubernetes")
+
+    assert skills[:3] == ["Python", "Kubernetes", "React"]
+
+
+@pytest.mark.asyncio
+async def test_skill_extraction_service_falls_back_when_gemini_fails() -> None:
+    """Skill extraction should still return deterministic matches when Gemini errors out."""
+    service = SkillExtractionService()
+
+    class FailingModels:
+        def generate_content(self, **kwargs: object) -> SimpleNamespace:
+            raise RuntimeError("rate limited")
+
+    service._client = SimpleNamespace(models=FailingModels())
+
+    skills = await service.extract_skills("FastAPI PostgreSQL Docker")
+
+    assert skills == ["FastAPI", "PostgreSQL", "Docker"]
 
 
 def test_settings_require_a_strong_jwt_secret() -> None:

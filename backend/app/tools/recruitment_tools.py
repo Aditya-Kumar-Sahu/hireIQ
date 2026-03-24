@@ -36,6 +36,7 @@ class ApplicationContextTool(_ContextTool):
                 "candidate_email": self._context.candidate_email,
                 "candidate_resume_text": self._context.candidate_resume_text,
                 "job_title": self._context.job_title,
+                "job_seniority": self._context.job_seniority,
                 "job_description": self._context.job_description,
                 "job_requirements": self._context.job_requirements,
             }

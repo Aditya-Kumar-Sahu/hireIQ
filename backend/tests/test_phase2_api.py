@@ -220,6 +220,71 @@ def test_duplicate_application_is_rejected(client: TestClient) -> None:
     assert "already applied" in second_response.json()["error"]
 
 
+def test_candidates_are_company_scoped_and_cross_company_application_is_blocked(
+    client: TestClient,
+) -> None:
+    """Recruiters should only see their own candidates and cannot apply another company's candidate."""
+    company_a_headers = {"Authorization": f"Bearer {_signup_and_authenticate(client, 'tenant-a@example.com')}"}
+    company_b_headers = {"Authorization": f"Bearer {_signup_and_authenticate(client, 'tenant-b@example.com')}"}
+
+    company_a_candidate = client.post(
+        "/api/v1/candidates",
+        headers=company_a_headers,
+        json={
+            "name": "Tenant A Candidate",
+            "email": "shared-candidate@example.com",
+            "resume_text": "Python FastAPI PostgreSQL",
+        },
+    )
+    assert company_a_candidate.status_code == 201
+    candidate_id = company_a_candidate.json()["data"]["id"]
+
+    company_b_candidate = client.post(
+        "/api/v1/candidates",
+        headers=company_b_headers,
+        json={
+            "name": "Tenant B Candidate",
+            "email": "shared-candidate@example.com",
+            "resume_text": "React TypeScript Next.js",
+        },
+    )
+    assert company_b_candidate.status_code == 201
+
+    company_b_list = client.get("/api/v1/candidates?page=1&limit=10", headers=company_b_headers)
+    company_b_items = company_b_list.json()["data"]["items"]
+    assert len(company_b_items) == 1
+    assert company_b_items[0]["email"] == "shared-candidate@example.com"
+    assert company_b_items[0]["id"] != candidate_id
+
+    company_b_detail = client.get(f"/api/v1/candidates/{candidate_id}", headers=company_b_headers)
+    assert company_b_detail.status_code == 404
+
+    company_b_search = client.get("/api/v1/candidates/search?q=FastAPI", headers=company_b_headers)
+    assert company_b_search.status_code == 200
+    assert all(
+        item["candidate"]["id"] != candidate_id
+        for item in company_b_search.json()["data"]
+    )
+
+    company_b_job = client.post(
+        "/api/v1/jobs",
+        headers=company_b_headers,
+        json={
+            "title": "Tenant B Backend Engineer",
+            "description": "Build internal APIs.",
+            "requirements": "FastAPI PostgreSQL Docker",
+            "seniority": "mid",
+        },
+    ).json()["data"]
+
+    cross_company_application = client.post(
+        "/api/v1/applications",
+        headers=company_b_headers,
+        json={"job_id": company_b_job["id"], "candidate_id": candidate_id},
+    )
+    assert cross_company_application.status_code == 404
+
+
 def test_job_update_soft_delete_and_status_filtering(client: TestClient) -> None:
     """Jobs can be updated, soft-deleted, and filtered by status."""
     token = _signup_and_authenticate(client, "jobs@example.com")

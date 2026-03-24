@@ -175,6 +175,9 @@ def test_application_submission_triggers_agent_pipeline_and_logs_runs(
     assert "similar_applications" in cv_screener_output
     assert len(cv_screener_output["similar_applications"]) >= 1
     assert detail_payload["assessment_result"]["question_provenance"]
+    assert detail_payload["assessment_result"]["questions"][0]["type"]
+    assert detail_payload["assessment_result"]["questions"][0]["evaluation_criteria"]
+    assert detail_payload["assessment_result"]["questions"][0]["estimated_time_minutes"] > 0
 
     scheduler_output = agent_runs[2]["output"]
     assert scheduler_output["calendar_event"]["mode"] == "live"
@@ -253,6 +256,7 @@ def test_crewai_runner_builds_real_agents_and_tools() -> None:
         candidate_email="casey@example.com",
         candidate_resume_text="FastAPI PostgreSQL Docker communication",
         job_title="Backend Engineer",
+        job_seniority="mid",
         job_description="Build backend APIs.",
         job_requirements="FastAPI PostgreSQL Docker",
         similarity_score=0.91,

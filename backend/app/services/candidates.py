@@ -6,13 +6,11 @@ import asyncio
 import inspect
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, ConflictException, NotFoundException
-from app.models.application import Application
 from app.models.candidate import Candidate
-from app.models.job import Job
 from app.models.user import User
 from app.rag import ResumeParser
 from app.rag.embeddings import EmbeddingService
@@ -106,6 +104,7 @@ class CandidateService:
         upload_result = await upload_task
 
         candidate = Candidate(
+            company_id=self.user.company_id,
             name=name.strip(),
             email=email.lower(),
             linkedin_url=linkedin_url,
@@ -139,11 +138,6 @@ class CandidateService:
         pagination: PaginationParams,
         search: str | None = None,
     ) -> PaginatedResponse[CandidateResponse]:
-        accessible_ids = (
-            select(Application.candidate_id)
-            .join(Job, Job.id == Application.job_id)
-            .where(Job.company_id == self.user.company_id)
-        )
         filters = []
         if search:
             term = f"%{search.strip()}%"
@@ -157,7 +151,7 @@ class CandidateService:
 
         base_query = (
             select(Candidate)
-            .where(or_(Candidate.id.in_(accessible_ids), ~Candidate.applications.any()))
+            .where(Candidate.company_id == self.user.company_id)
             .where(*filters)
         )
         total = await self.db.scalar(
@@ -178,22 +172,9 @@ class CandidateService:
         )
 
     async def get_candidate(self, candidate_id: UUID) -> Candidate:
-        access_query = (
-            select(Candidate)
-            .where(Candidate.id == candidate_id)
-            .where(
-                or_(
-                    ~Candidate.applications.any(),
-                    exists(
-                        select(Application.id)
-                        .join(Job, Job.id == Application.job_id)
-                        .where(
-                            Application.candidate_id == Candidate.id,
-                            Job.company_id == self.user.company_id,
-                        )
-                    ),
-                )
-            )
+        access_query = select(Candidate).where(
+            Candidate.id == candidate_id,
+            Candidate.company_id == self.user.company_id,
         )
         candidate = await self.db.scalar(access_query)
         if candidate is None:
@@ -219,17 +200,7 @@ class CandidateService:
         result = await self.db.execute(
             select(Candidate, similarity_score)
             .where(
-                or_(
-                    ~Candidate.applications.any(),
-                    exists(
-                        select(Application.id)
-                        .join(Job, Job.id == Application.job_id)
-                        .where(
-                            Application.candidate_id == Candidate.id,
-                            Job.company_id == self.user.company_id,
-                        )
-                    ),
-                ),
+                Candidate.company_id == self.user.company_id,
                 Candidate.resume_embedding.is_not(None),
             )
             .order_by(Candidate.resume_embedding.cosine_distance(query_embedding))
@@ -254,6 +225,7 @@ class CandidateService:
     ) -> Candidate:
         await self._ensure_email_is_available(email)
         candidate = Candidate(
+            company_id=self.user.company_id,
             name=name.strip(),
             email=email.lower(),
             linkedin_url=linkedin_url,
@@ -270,7 +242,10 @@ class CandidateService:
 
     async def _ensure_email_is_available(self, email: str) -> None:
         existing = await self.db.scalar(
-            select(Candidate).where(func.lower(Candidate.email) == email.lower())
+            select(Candidate).where(
+                Candidate.company_id == self.user.company_id,
+                func.lower(Candidate.email) == email.lower(),
+            )
         )
         if existing is not None:
             raise ConflictException("A candidate with this email already exists")

@@ -2,32 +2,75 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import re
 from dataclasses import dataclass
 
+from google import genai
+from google.genai import types
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.config import settings
 from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 
+logger = logging.getLogger(__name__)
+
 SKILL_ALIASES: dict[str, tuple[str, ...]] = {
-    "Python": ("python",),
+    "Python": ("python", "py"),
     "FastAPI": ("fastapi",),
+    "Django": ("django",),
+    "Flask": ("flask",),
     "SQLAlchemy": ("sqlalchemy",),
     "PostgreSQL": ("postgresql", "postgres"),
-    "Docker": ("docker",),
+    "MySQL": ("mysql",),
+    "SQLite": ("sqlite",),
+    "MongoDB": ("mongodb", "mongo db", "mongo"),
     "Redis": ("redis",),
-    "React": ("react",),
-    "TypeScript": ("typescript", "type script"),
-    "GraphQL": ("graphql",),
+    "Docker": ("docker", "containerization"),
     "Kubernetes": ("kubernetes", "k8s"),
-    "CrewAI": ("crewai",),
+    "AWS": ("aws", "amazon web services"),
+    "GCP": ("gcp", "google cloud platform", "google cloud"),
+    "Azure": ("azure",),
+    "Terraform": ("terraform",),
+    "CI/CD": ("ci/cd", "cicd", "continuous integration", "continuous delivery"),
+    "GitHub Actions": ("github actions",),
+    "React": ("react",),
+    "Next.js": ("next.js", "nextjs"),
+    "TypeScript": ("typescript", "type script"),
+    "JavaScript": ("javascript", "js"),
+    "HTML": ("html",),
+    "CSS": ("css",),
+    "Tailwind CSS": ("tailwind", "tailwindcss", "tailwind css"),
+    "Node.js": ("node.js", "nodejs", "node"),
+    "Express": ("express", "expressjs"),
+    "GraphQL": ("graphql",),
+    "REST APIs": ("rest api", "restful api", "apis"),
+    "Microservices": ("microservices", "microservice"),
+    "System Design": ("system design",),
+    "Testing": ("pytest", "jest", "testing", "test automation", "unit testing"),
+    "Pytest": ("pytest",),
+    "Playwright": ("playwright",),
+    "Pandas": ("pandas",),
+    "NumPy": ("numpy",),
+    "Machine Learning": ("machine learning", "ml"),
+    "LLMs": ("llm", "llms", "large language models"),
     "OpenAI": ("openai",),
     "Gemini": ("gemini", "google genai", "google ai studio"),
-    "Next.js": ("next.js", "nextjs"),
+    "CrewAI": ("crewai",),
+    "LangChain": ("langchain",),
+    "Data Pipelines": ("etl", "elt", "data pipeline", "data pipelines"),
+    "Airflow": ("airflow", "apache airflow"),
+    "Spark": ("spark", "apache spark"),
+    "Linux": ("linux",),
+    "Agile": ("agile", "scrum", "kanban"),
+    "Communication": ("communication", "stakeholder management"),
 }
 
 
@@ -45,15 +88,113 @@ class ScreeningInsights:
     similar_applications: list[dict[str, object]]
 
 
+class SkillExtractionOutput(BaseModel):
+    """Structured skill extraction payload returned by Gemini."""
+
+    skills: list[str]
+
+
+class SkillExtractionService:
+    """Extract canonical skills from free text using Gemini with deterministic fallback."""
+
+    def __init__(self) -> None:
+        self._client = (
+            genai.Client(api_key=settings.resolved_gemini_api_key)
+            if settings.resolved_gemini_api_key
+            else None
+        )
+
+    async def extract_skills(self, text: str) -> list[str]:
+        """Return canonical skills found in the provided text."""
+        fallback = self.extract_skills_fallback(text)
+        normalized = self.normalize_text(text)
+        if not normalized or self._client is None:
+            return fallback
+
+        try:
+            remote_skills = await asyncio.to_thread(self._remote_extract_skills, normalized)
+        except Exception:
+            logger.exception("Gemini skill extraction failed; using deterministic fallback")
+            return fallback
+
+        return self._merge_skills(remote_skills, fallback)
+
+    @staticmethod
+    def normalize_text(text: str) -> str:
+        """Normalize whitespace before extraction."""
+        return " ".join(text.split()).strip()
+
+    @staticmethod
+    def canonical_skills() -> list[str]:
+        """Return the supported canonical taxonomy."""
+        return list(SKILL_ALIASES.keys())
+
+    @classmethod
+    def normalize_skill_name(cls, raw_skill: str) -> str | None:
+        """Map a raw skill label back into the supported canonical taxonomy."""
+        candidate = raw_skill.strip().lower()
+        if not candidate:
+            return None
+
+        for canonical, aliases in SKILL_ALIASES.items():
+            known_values = {canonical.lower(), *(alias.lower() for alias in aliases)}
+            if candidate in known_values:
+                return canonical
+        return None
+
+    @classmethod
+    def extract_skills_fallback(cls, text: str) -> list[str]:
+        """Extract canonical skills using deterministic alias matching."""
+        haystack = cls.normalize_text(text).lower()
+        found: list[str] = []
+        for canonical, aliases in SKILL_ALIASES.items():
+            if canonical.lower() in haystack or any(alias in haystack for alias in aliases):
+                found.append(canonical)
+        return found
+
+    @classmethod
+    def _merge_skills(cls, primary: list[str], secondary: list[str]) -> list[str]:
+        """Deduplicate while preserving the higher-quality extractor ordering first."""
+        merged: list[str] = []
+        seen: set[str] = set()
+        for skill in [*primary, *secondary]:
+            canonical = cls.normalize_skill_name(skill) or skill
+            if canonical not in SKILL_ALIASES or canonical in seen:
+                continue
+            seen.add(canonical)
+            merged.append(canonical)
+        return merged
+
+    def _remote_extract_skills(self, text: str) -> list[str]:
+        """Ask Gemini to extract skills using the supported canonical taxonomy."""
+        assert self._client is not None
+        response = self._client.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=(
+                "Extract only the relevant hard skills, frameworks, cloud platforms, tools, and "
+                "seniority-relevant competencies from the text. Return strict JSON with a single "
+                f"'skills' array using only these canonical values: {', '.join(self.canonical_skills())}.\n\n"
+                f"TEXT:\n{text}"
+            ),
+            config=types.GenerateContentConfig(
+                temperature=0,
+                response_mime_type="application/json",
+            ),
+        )
+        payload = SkillExtractionOutput.model_validate(json.loads(response.text or "{}"))
+        return [skill for skill in payload.skills if self.normalize_skill_name(skill)]
+
+
 class ScreeningInsightsService:
     """Compute similarity, skill gaps, and historical context for CV screening."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self.skill_extractor = SkillExtractionService()
 
     async def build_insights(self, application: Application) -> ScreeningInsights:
         """Compute the full CV-screener context for an application."""
-        matched_skills, missing_skills = self.analyze_skill_gap(
+        matched_skills, missing_skills = await self.analyze_skill_gap(
             job_text=f"{application.job.description}\n{application.job.requirements}",
             resume_text=application.candidate.resume_text or "",
         )
@@ -90,11 +231,10 @@ class ScreeningInsightsService:
             similar_applications=similar_applications,
         )
 
-    @staticmethod
-    def analyze_skill_gap(*, job_text: str, resume_text: str) -> tuple[list[str], list[str]]:
+    async def analyze_skill_gap(self, *, job_text: str, resume_text: str) -> tuple[list[str], list[str]]:
         """Return matched and missing canonical skills."""
-        job_skills = ScreeningInsightsService.extract_skills(job_text)
-        resume_skills = ScreeningInsightsService.extract_skills(resume_text)
+        job_skills = await self.skill_extractor.extract_skills(job_text)
+        resume_skills = await self.skill_extractor.extract_skills(resume_text)
         matched = [skill for skill in job_skills if skill in resume_skills]
         missing = [skill for skill in job_skills if skill not in resume_skills]
         return matched, missing
@@ -159,16 +299,6 @@ class ScreeningInsightsService:
             }
             for other_application, candidate_name, job_title, score in result.all()
         ]
-
-    @staticmethod
-    def extract_skills(text: str) -> list[str]:
-        """Extract canonical skills from free text."""
-        haystack = text.lower()
-        found: list[str] = []
-        for canonical, aliases in SKILL_ALIASES.items():
-            if any(alias in haystack for alias in aliases):
-                found.append(canonical)
-        return found
 
     @staticmethod
     def estimate_experience_years(text: str) -> int:

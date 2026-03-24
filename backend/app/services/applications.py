@@ -77,7 +77,12 @@ class ApplicationService:
         if job is None:
             raise NotFoundException("Job", str(payload.job_id))
 
-        candidate = await self.db.scalar(select(Candidate).where(Candidate.id == payload.candidate_id))
+        candidate = await self.db.scalar(
+            select(Candidate).where(
+                Candidate.id == payload.candidate_id,
+                Candidate.company_id == self.user.company_id,
+            )
+        )
         if candidate is None:
             raise NotFoundException("Candidate", str(payload.candidate_id))
 

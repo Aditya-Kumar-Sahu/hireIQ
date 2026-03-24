@@ -75,6 +75,7 @@ class ApplicationOrchestrator:
             candidate_email=application.candidate.email,
             candidate_resume_text=application.candidate.resume_text or "",
             job_title=application.job.title,
+            job_seniority=application.job.seniority.value,
             job_description=application.job.description,
             job_requirements=application.job.requirements,
             similarity_score=insights.similarity_score,
