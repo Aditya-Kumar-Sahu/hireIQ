@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { getMe } from "@/lib/api";
+import { getMe, isApiError } from "@/lib/api";
 import { clearToken, readToken } from "@/lib/auth";
 import type { User } from "@/lib/types";
 
@@ -34,10 +34,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     try {
       const nextUser = await getMe(activeToken);
       setUser(nextUser);
-    } catch {
-      clearToken();
-      setToken(null);
-      setUser(null);
+    } catch (error) {
+      if (isApiError(error) && [401, 403].includes(error.status)) {
+        clearToken();
+        setToken(null);
+        setUser(null);
+      } else {
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }

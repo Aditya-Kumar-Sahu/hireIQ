@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import {
   disconnectGoogleCalendar,
+  getApiErrorMessage,
   getGoogleCalendarAuthorizationUrl,
   getIntegrations,
 } from "@/lib/api";
@@ -62,7 +63,11 @@ export default function SettingsPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load integrations");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load integrations", {
+              401: "Your session expired. Please log in again.",
+            }),
+          );
         }
       }
     }
@@ -84,7 +89,11 @@ export default function SettingsPage() {
       const response = await getGoogleCalendarAuthorizationUrl(token);
       window.location.assign(response.authorization_url);
     } catch (connectError) {
-      setError(connectError instanceof Error ? connectError.message : "Unable to start Google Calendar connection");
+      setError(
+        getApiErrorMessage(connectError, "Unable to start Google Calendar connection", {
+          401: "Your session expired. Please log in again.",
+        }),
+      );
       setWorking(false);
     }
   }
@@ -102,9 +111,9 @@ export default function SettingsPage() {
       setNotice("Google Calendar has been disconnected.");
     } catch (disconnectError) {
       setError(
-        disconnectError instanceof Error
-          ? disconnectError.message
-          : "Unable to disconnect Google Calendar",
+        getApiErrorMessage(disconnectError, "Unable to disconnect Google Calendar", {
+          401: "Your session expired. Please log in again.",
+        }),
       );
     } finally {
       setWorking(false);

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from uuid import UUID
 
@@ -76,20 +77,35 @@ class CandidateService:
             raise BadRequestException("Resume upload must be a PDF")
 
         resume_text = self.resume_parser.extract_text(file_bytes)
-        candidate = await self._create_candidate_model(
-            name=name,
-            email=email,
-            linkedin_url=linkedin_url,
-            resume_text=resume_text,
-        )
+        await self._ensure_email_is_available(email)
 
-        upload_result = await _maybe_await(
-            self.storage_service.upload_resume(
-                company_id=self.user.company_id,
-                filename=filename,
-                file_bytes=file_bytes,
+        embedding_task = (
+            asyncio.create_task(self.embedding_service.embed_text(resume_text))
+            if resume_text
+            else None
+        )
+        upload_task = asyncio.create_task(
+            _maybe_await(
+                self.storage_service.upload_resume(
+                    company_id=self.user.company_id,
+                    filename=filename,
+                    file_bytes=file_bytes,
+                )
             )
         )
+
+        resume_embedding = await embedding_task if embedding_task is not None else None
+        upload_result = await upload_task
+
+        candidate = Candidate(
+            name=name.strip(),
+            email=email.lower(),
+            linkedin_url=linkedin_url,
+            resume_text=resume_text,
+            resume_embedding=resume_embedding,
+        )
+        self.db.add(candidate)
+        await self.db.flush()
         if isinstance(upload_result, dict) and upload_result.get("storage_key"):
             candidate.resume_storage_key = str(upload_result["storage_key"])
             candidate.resume_file_url = f"/api/v1/candidates/{candidate.id}/resume"

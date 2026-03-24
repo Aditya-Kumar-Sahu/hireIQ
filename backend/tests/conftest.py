@@ -27,6 +27,7 @@ os.environ["R2_SECRET_ACCESS_KEY"] = ""
 os.environ["R2_ENDPOINT_URL"] = ""
 
 from app.main import app  # noqa: E402
+from app.core.config import settings  # noqa: E402
 
 
 TEST_DATABASE_URL = os.environ["DATABASE_URL"]
@@ -62,6 +63,18 @@ async def reset_database(db_session_factory: async_sessionmaker[AsyncSession]) -
             )
         )
         await session.commit()
+
+
+@pytest.fixture(autouse=True)
+def reset_runtime_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests isolated from locally configured third-party credentials."""
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "GOOGLE_API_KEY", "")
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "")
+    monkeypatch.setattr(settings, "R2_ENDPOINT_URL", "")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "hireiq-resumes")
 
 
 @pytest.fixture

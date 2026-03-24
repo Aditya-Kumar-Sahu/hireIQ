@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createJob } from "@/lib/api";
+import { createJob, getApiErrorMessage } from "@/lib/api";
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -19,6 +19,7 @@ export default function NewJobPage() {
   const [seniority, setSeniority] = useState("mid");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -28,6 +29,12 @@ export default function NewJobPage() {
 
     setLoading(true);
     setError(null);
+    setStatusMessage("Creating the role and generating its semantic embedding...");
+    const slowRequestTimer = window.setTimeout(() => {
+      setStatusMessage(
+        "Still working. HireIQ is embedding the role so semantic matching is ready immediately after creation.",
+      );
+    }, 1200);
     try {
       const job = await createJob(token, {
         title,
@@ -37,8 +44,16 @@ export default function NewJobPage() {
       });
       router.replace(`/jobs/${job.id}`);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to create job");
+      setError(
+        getApiErrorMessage(submitError, "Unable to create job", {
+          401: "Your session expired. Please log in again.",
+          422: "Please review the job fields and try again.",
+          500: "The backend hit an error while creating this role. Please try again.",
+        }),
+      );
     } finally {
+      window.clearTimeout(slowRequestTimer);
+      setStatusMessage(null);
       setLoading(false);
     }
   }
@@ -58,7 +73,12 @@ export default function NewJobPage() {
         <form className="grid gap-5" onSubmit={handleSubmit}>
           <label className="block space-y-2">
             <span className="text-sm font-medium text-[color:var(--muted)]">Role title</span>
-            <Input value={title} onChange={(event) => setTitle(event.target.value)} required />
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              required
+              disabled={loading}
+            />
           </label>
           <label className="block space-y-2">
             <span className="text-sm font-medium text-[color:var(--muted)]">Description</span>
@@ -66,6 +86,7 @@ export default function NewJobPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               required
+              disabled={loading}
             />
           </label>
           <label className="block space-y-2">
@@ -74,6 +95,7 @@ export default function NewJobPage() {
               value={requirements}
               onChange={(event) => setRequirements(event.target.value)}
               required
+              disabled={loading}
             />
           </label>
           <label className="block space-y-2">
@@ -82,6 +104,7 @@ export default function NewJobPage() {
               className="h-12 rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 text-sm outline-none"
               value={seniority}
               onChange={(event) => setSeniority(event.target.value)}
+              disabled={loading}
             >
               <option value="junior">Junior</option>
               <option value="mid">Mid</option>
@@ -89,6 +112,11 @@ export default function NewJobPage() {
               <option value="lead">Lead</option>
             </select>
           </label>
+          {statusMessage ? (
+            <p className="rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm text-[color:var(--muted)]">
+              {statusMessage}
+            </p>
+          ) : null}
           {error ? (
             <p className="rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
               {error}
@@ -98,7 +126,7 @@ export default function NewJobPage() {
             <Button data-testid="job-create-submit" disabled={loading} type="submit">
               {loading ? "Creating..." : "Create job"}
             </Button>
-            <Button type="button" variant="secondary" onClick={() => router.back()}>
+            <Button type="button" variant="secondary" onClick={() => router.back()} disabled={loading}>
               Cancel
             </Button>
           </div>

@@ -8,7 +8,7 @@ import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { getApplication, getSimilarJobsForApplication } from "@/lib/api";
+import { getApiErrorMessage, getApplication, getSimilarJobsForApplication } from "@/lib/api";
 import type { ApplicationDetail, SimilarJobResult } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
@@ -393,6 +393,10 @@ export default function ApplicationDetailPage() {
   const [similarJobs, setSimilarJobs] = useState<SimilarJobResult[]>([]);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [streamStatus, setStreamStatus] = useState<"connecting" | "live" | "reconnecting">(
+    "connecting",
+  );
 
   useEffect(() => {
     const currentId = applicationId;
@@ -403,6 +407,7 @@ export default function ApplicationDetailPage() {
 
     let cancelled = false;
     async function load() {
+      setLoading(true);
       setError(null);
       try {
         const [applicationResponse, similarJobsResponse] = await Promise.all([
@@ -415,7 +420,16 @@ export default function ApplicationDetailPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load application");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load application", {
+              401: "Your session expired. Please log in again.",
+              404: "That application could not be found.",
+            }),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
     }
@@ -458,9 +472,12 @@ export default function ApplicationDetailPage() {
       }
     };
 
+    source.onopen = () => {
+      setStreamStatus("live");
+    };
     eventNames.forEach((name) => source.addEventListener(name, handler));
     source.onerror = () => {
-      source.close();
+      setStreamStatus("reconnecting");
     };
 
     return () => {
@@ -469,11 +486,22 @@ export default function ApplicationDetailPage() {
     };
   }, [applicationId]);
 
-  if (!application) {
+  if (loading && !application) {
     return (
       <Card>
         <CardTitle className="text-2xl">Loading application...</CardTitle>
-        <CardDescription>{error ?? "Fetching screening results and agent output."}</CardDescription>
+        <CardDescription>
+          {error ?? "Fetching screening results, similar jobs, and the live pipeline feed."}
+        </CardDescription>
+      </Card>
+    );
+  }
+
+  if (!application) {
+    return (
+      <Card>
+        <CardTitle className="text-2xl">Application unavailable</CardTitle>
+        <CardDescription>{error ?? "This application could not be loaded."}</CardDescription>
       </Card>
     );
   }
@@ -575,16 +603,36 @@ export default function ApplicationDetailPage() {
               <p className="eyebrow">Live SSE Feed</p>
               <CardTitle className="mt-2 text-3xl">Pipeline activity</CardTitle>
             </div>
-            <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
-              <Activity className="h-5 w-5" />
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={
+                  streamStatus === "live"
+                    ? "success"
+                    : streamStatus === "reconnecting"
+                      ? "warning"
+                      : "default"
+                }
+              >
+                {streamStatus === "live"
+                  ? "Live"
+                  : streamStatus === "reconnecting"
+                    ? "Reconnecting"
+                    : "Connecting"}
+              </Badge>
+              <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
+                <Activity className="h-5 w-5" />
+              </div>
             </div>
           </div>
           <div className="mt-6 grid gap-3">
             {events.length === 0 ? (
-              <p className="text-sm text-[color:var(--muted)]">
-                Waiting for stream events. This endpoint replays history, so refreshing the page is
-                safe even after the pipeline completes.
-              </p>
+              <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
+                <p className="text-sm text-[color:var(--muted)]">
+                  {streamStatus === "reconnecting"
+                    ? "The live feed hit a temporary interruption. EventSource is retrying automatically."
+                    : "Waiting for stream events. This endpoint replays history, so refreshing the page is safe even after the pipeline completes."}
+                </p>
+              </div>
             ) : (
               events.map((event) => <TimelineEventCard key={`${event.event}-${event.timestamp}`} event={event} />)
             )}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { login, signup } from "@/lib/api";
+import { getApiErrorMessage, login, signup } from "@/lib/api";
 import { persistToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -21,11 +21,20 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [companyName, setCompanyName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setLoading(true);
+    setStatusMessage(mode === "signup" ? "Creating your workspace..." : "Signing you in...");
+    const slowRequestTimer = window.setTimeout(() => {
+      setStatusMessage(
+        mode === "signup"
+          ? "Still working. We’re creating your workspace and loading your recruiter profile."
+          : "Still working. We’re verifying your account and loading your recruiter profile.",
+      );
+    }, 1200);
 
     try {
       const token =
@@ -37,8 +46,17 @@ export function AuthForm({ mode }: AuthFormProps) {
       router.replace(nextPath ?? "/dashboard");
       router.refresh();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to continue");
+      setError(
+        getApiErrorMessage(submitError, "Unable to continue", {
+          401: "Invalid email or password.",
+          409: "An account with this email already exists. Try logging in instead.",
+          422: "Please review the form fields and try again.",
+          500: "The backend hit an error while processing your request. Please try again.",
+        }),
+      );
     } finally {
+      window.clearTimeout(slowRequestTimer);
+      setStatusMessage(null);
       setLoading(false);
     }
   }
@@ -64,11 +82,12 @@ export function AuthForm({ mode }: AuthFormProps) {
             <Input
               placeholder="Acme Hiring"
               value={companyName}
-              onChange={(event) => setCompanyName(event.target.value)}
-              required
-            />
-          </label>
-        ) : null}
+            onChange={(event) => setCompanyName(event.target.value)}
+            required
+            disabled={loading}
+          />
+        </label>
+      ) : null}
         <label className="block space-y-2">
           <span className="text-sm font-medium text-[color:var(--muted)]">Work email</span>
           <Input
@@ -77,6 +96,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             required
+            disabled={loading}
           />
         </label>
         <label className="block space-y-2">
@@ -87,8 +107,14 @@ export function AuthForm({ mode }: AuthFormProps) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             required
+            disabled={loading}
           />
         </label>
+        {statusMessage ? (
+          <p className="rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm text-[color:var(--muted)]">
+            {statusMessage}
+          </p>
+        ) : null}
         {error ? (
           <p className="rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
             {error}

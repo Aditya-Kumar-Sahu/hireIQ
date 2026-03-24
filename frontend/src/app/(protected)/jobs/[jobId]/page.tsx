@@ -8,7 +8,14 @@ import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { createApplication, listApplications, listCandidates, getJob, updateJob } from "@/lib/api";
+import {
+  createApplication,
+  getApiErrorMessage,
+  listApplications,
+  listCandidates,
+  getJob,
+  updateJob,
+} from "@/lib/api";
 import type { Application, Candidate, Job, JobStatus } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
@@ -35,6 +42,9 @@ export default function JobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submittingApplication, setSubmittingApplication] = useState(false);
+  const [submissionStatusMessage, setSubmissionStatusMessage] = useState<string | null>(null);
+  const [savingStatus, setSavingStatus] = useState(false);
 
   useEffect(() => {
     const currentJobId = jobId;
@@ -62,7 +72,12 @@ export default function JobDetailPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load role board");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load role board", {
+              401: "Your session expired. Please log in again.",
+              404: "This role could not be found.",
+            }),
+          );
         }
       } finally {
         if (!cancelled) {
@@ -98,16 +113,33 @@ export default function JobDetailPage() {
     const currentJobId = job.id;
 
     setSubmissionError(null);
+    setSubmittingApplication(true);
+    setSubmissionStatusMessage("Creating the application and opening the recruiter workflow...");
+    const slowRequestTimer = window.setTimeout(() => {
+      setSubmissionStatusMessage(
+        "Still working. HireIQ is saving the application and preparing the live pipeline view.",
+      );
+    }, 1200);
     try {
       const application = await createApplication(token, {
         job_id: currentJobId,
         candidate_id: selectedCandidateId,
       });
+      setSubmissionStatusMessage("Application created. Opening the live application view...");
       router.push(`/applications/${application.id}`);
     } catch (submitError) {
       setSubmissionError(
-        submitError instanceof Error ? submitError.message : "Unable to submit application",
+        getApiErrorMessage(submitError, "Unable to submit application", {
+          401: "Your session expired. Please log in again.",
+          404: "The selected candidate or role could not be found.",
+          409: "That candidate has already been submitted to this role.",
+          422: "Please review the application inputs and try again.",
+        }),
       );
+    } finally {
+      window.clearTimeout(slowRequestTimer);
+      setSubmittingApplication(false);
+      setSubmissionStatusMessage(null);
     }
   }
 
@@ -117,11 +149,20 @@ export default function JobDetailPage() {
     }
     const currentJobId = job.id;
 
+    setSavingStatus(true);
     try {
       const updatedJob = await updateJob(token, currentJobId, { status: statusValue });
       setJob(updatedJob);
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Unable to update role");
+      setError(
+        getApiErrorMessage(updateError, "Unable to update role", {
+          401: "Your session expired. Please log in again.",
+          404: "This role no longer exists.",
+          422: "Please review the selected status and try again.",
+        }),
+      );
+    } finally {
+      setSavingStatus(false);
     }
   }
 
@@ -159,14 +200,15 @@ export default function JobDetailPage() {
                 <select
                   className="h-11 min-w-[180px] rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
                   value={statusValue}
+                  disabled={savingStatus}
                   onChange={(event) => setStatusValue(event.target.value as JobStatus)}
                 >
                   <option value="draft">Draft</option>
                   <option value="active">Active</option>
                   <option value="closed">Closed</option>
                 </select>
-                <Button type="button" variant="secondary" onClick={handleStatusUpdate}>
-                  Save status
+                <Button type="button" variant="secondary" onClick={handleStatusUpdate} disabled={savingStatus}>
+                  {savingStatus ? "Saving..." : "Save status"}
                 </Button>
               </div>
             </div>
@@ -182,6 +224,7 @@ export default function JobDetailPage() {
               <select
                 className="mt-4 h-11 w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
                 value={selectedCandidateId}
+                disabled={submittingApplication}
                 onChange={(event) => setSelectedCandidateId(event.target.value)}
               >
                 {candidates.map((candidate) => (
@@ -190,17 +233,26 @@ export default function JobDetailPage() {
                   </option>
                 ))}
               </select>
+              {submissionStatusMessage ? (
+                <p className="mt-3 rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm text-[color:var(--muted)]">
+                  {submissionStatusMessage}
+                </p>
+              ) : null}
               {submissionError ? (
                 <p className="mt-3 rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
                   {submissionError}
                 </p>
               ) : null}
               <div className="mt-4 flex flex-wrap gap-3">
-                <Button data-testid="application-create-submit" disabled={!selectedCandidateId} type="submit">
-                  Create application
+                <Button
+                  data-testid="application-create-submit"
+                  disabled={!selectedCandidateId || submittingApplication}
+                  type="submit"
+                >
+                  {submittingApplication ? "Creating application..." : "Create application"}
                 </Button>
                 <Link href="/candidates">
-                  <Button type="button" variant="secondary">
+                  <Button type="button" variant="secondary" disabled={submittingApplication}>
                     Add new candidate
                   </Button>
                 </Link>

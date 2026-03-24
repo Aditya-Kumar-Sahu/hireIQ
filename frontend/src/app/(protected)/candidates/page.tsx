@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   createCandidate,
   createCandidateFromPdf,
+  getApiErrorMessage,
   getCandidate,
   getSimilarJobsForCandidate,
   listCandidates,
@@ -31,6 +32,10 @@ export default function CandidatesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"text" | "pdf">("text");
+  const [searching, setSearching] = useState(false);
+  const [creatingCandidate, setCreatingCandidate] = useState(false);
+  const [createStatusMessage, setCreateStatusMessage] = useState<string | null>(null);
+  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
   const [formState, setFormState] = useState({
     name: "",
     email: "",
@@ -56,7 +61,11 @@ export default function CandidatesPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load candidates");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load candidates", {
+              401: "Your session expired. Please log in again.",
+            }),
+          );
         }
       } finally {
         if (!cancelled) {
@@ -78,6 +87,7 @@ export default function CandidatesPage() {
 
     let cancelled = false;
     async function loadCandidateDetails() {
+      setCandidateDetailLoading(true);
       try {
         const [detailResponse, similarJobsResponse] = await Promise.all([
           getCandidate(token, selectedCandidateId),
@@ -89,7 +99,16 @@ export default function CandidatesPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load candidate");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load candidate", {
+              401: "Your session expired. Please log in again.",
+              404: "That candidate could not be found.",
+            }),
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCandidateDetailLoading(false);
         }
       }
     }
@@ -120,11 +139,19 @@ export default function CandidatesPage() {
       return;
     }
 
+    setSearching(true);
     try {
       const results = await searchCandidates(token, query.trim());
       setSearchResults(results);
     } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : "Unable to search candidates");
+      setError(
+        getApiErrorMessage(searchError, "Unable to search candidates", {
+          401: "Your session expired. Please log in again.",
+          422: "Search query is too short. Try a more specific prompt.",
+        }),
+      );
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -135,6 +162,19 @@ export default function CandidatesPage() {
     }
 
     setError(null);
+    setCreatingCandidate(true);
+    setCreateStatusMessage(
+      formMode === "pdf"
+        ? "Uploading the PDF, extracting the resume, and generating an embedding..."
+        : "Saving the candidate and generating an embedding...",
+    );
+    const slowRequestTimer = window.setTimeout(() => {
+      setCreateStatusMessage(
+        formMode === "pdf"
+          ? "Still working. HireIQ is parsing the PDF, storing the original resume, and preparing semantic search."
+          : "Still working. HireIQ is generating the resume embedding for semantic search.",
+      );
+    }, 1200);
     try {
       if (formMode === "pdf") {
         if (!resumeFile) {
@@ -160,7 +200,19 @@ export default function CandidatesPage() {
       setSearchResults(null);
       await refreshCandidates();
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Unable to create candidate");
+      setError(
+        getApiErrorMessage(createError, "Unable to create candidate", {
+          401: "Your session expired. Please log in again.",
+          409: "A candidate with this email already exists.",
+          422: "Please review the candidate fields and try again.",
+          503:
+            "Resume storage is currently unavailable. Please retry after checking the storage integration.",
+        }),
+      );
+    } finally {
+      window.clearTimeout(slowRequestTimer);
+      setCreateStatusMessage(null);
+      setCreatingCandidate(false);
     }
   }
 
@@ -201,15 +253,17 @@ export default function CandidatesPage() {
               placeholder="Search semantically: fastapi backend engineer"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              disabled={searching}
             />
-            <Button type="submit">
+            <Button type="submit" disabled={searching}>
               <Search className="mr-2 h-4 w-4" />
-              Search
+              {searching ? "Searching..." : "Search"}
             </Button>
             {searchResults ? (
               <Button
                 type="button"
                 variant="secondary"
+                disabled={searching}
                 onClick={() => {
                   setQuery("");
                   setSearchResults(null);
@@ -263,6 +317,7 @@ export default function CandidatesPage() {
                 className="flex-1"
                 type="button"
                 variant={formMode === "text" ? "primary" : "secondary"}
+                disabled={creatingCandidate}
                 onClick={() => setFormMode("text")}
               >
                 Resume text
@@ -271,6 +326,7 @@ export default function CandidatesPage() {
                 className="flex-1"
                 type="button"
                 variant={formMode === "pdf" ? "primary" : "secondary"}
+                disabled={creatingCandidate}
                 onClick={() => setFormMode("pdf")}
               >
                 PDF upload
@@ -279,6 +335,7 @@ export default function CandidatesPage() {
             <Input
               placeholder="Candidate name"
               required
+              disabled={creatingCandidate}
               value={formState.name}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, name: event.target.value }))
@@ -288,6 +345,7 @@ export default function CandidatesPage() {
               placeholder="candidate@example.com"
               required
               type="email"
+              disabled={creatingCandidate}
               value={formState.email}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, email: event.target.value }))
@@ -295,6 +353,7 @@ export default function CandidatesPage() {
             />
             <Input
               placeholder="LinkedIn URL (optional)"
+              disabled={creatingCandidate}
               value={formState.linkedinUrl}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, linkedinUrl: event.target.value }))
@@ -303,6 +362,7 @@ export default function CandidatesPage() {
             {formMode === "text" ? (
               <Textarea
                 placeholder="Paste resume text here"
+                disabled={creatingCandidate}
                 value={formState.resumeText}
                 onChange={(event) =>
                   setFormState((current) => ({ ...current, resumeText: event.target.value }))
@@ -312,11 +372,17 @@ export default function CandidatesPage() {
               <Input
                 accept=".pdf,application/pdf"
                 type="file"
+                disabled={creatingCandidate}
                 onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
               />
             )}
-            <Button data-testid="candidate-save" type="submit">
-              Save candidate
+            {createStatusMessage ? (
+              <p className="rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm text-[color:var(--muted)]">
+                {createStatusMessage}
+              </p>
+            ) : null}
+            <Button data-testid="candidate-save" type="submit" disabled={creatingCandidate}>
+              {creatingCandidate ? "Saving candidate..." : "Save candidate"}
             </Button>
           </form>
         </Card>
@@ -328,7 +394,11 @@ export default function CandidatesPage() {
           <CardTitle className="mt-2 text-3xl">
             {selectedCandidate?.name ?? "Choose a candidate"}
           </CardTitle>
-          {selectedCandidate ? (
+          {candidateDetailLoading ? (
+            <p className="mt-4 text-sm text-[color:var(--muted)]">
+              Loading candidate profile and similar jobs...
+            </p>
+          ) : selectedCandidate ? (
             <div className="mt-6 space-y-4">
               <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
                 <p className="text-sm text-[color:var(--muted)]">{selectedCandidate.email}</p>
@@ -357,7 +427,11 @@ export default function CandidatesPage() {
           <p className="eyebrow">Similar jobs</p>
           <CardTitle className="mt-2 text-3xl">Best matching roles</CardTitle>
           <div className="mt-6 grid gap-3">
-            {selectedCandidateId && similarJobs.length === 0 ? (
+            {candidateDetailLoading ? (
+              <p className="text-sm text-[color:var(--muted)]">
+                Matching this candidate against your job library...
+              </p>
+            ) : selectedCandidateId && similarJobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No similar jobs available yet. Create more roles or wait for embeddings to be ready.
               </p>

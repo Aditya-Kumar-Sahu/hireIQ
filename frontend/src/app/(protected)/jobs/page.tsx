@@ -8,7 +8,7 @@ import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { listApplications, listJobs } from "@/lib/api";
+import { getApiErrorMessage, listApplications, listJobs } from "@/lib/api";
 import type { Application, Job } from "@/lib/types";
 import { titleCase } from "@/lib/utils";
 
@@ -39,7 +39,11 @@ export default function JobsPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load jobs");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load jobs", {
+              401: "Your session expired. Please log in again.",
+            }),
+          );
         }
       } finally {
         if (!cancelled) {

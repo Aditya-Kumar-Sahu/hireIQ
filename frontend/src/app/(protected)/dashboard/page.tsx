@@ -8,7 +8,7 @@ import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { listApplications, listCandidates, listJobs } from "@/lib/api";
+import { getApiErrorMessage, listApplications, listCandidates, listJobs } from "@/lib/api";
 import type { Application, Candidate, Job } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
 
@@ -42,7 +42,11 @@ export default function DashboardPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Unable to load dashboard");
+          setError(
+            getApiErrorMessage(loadError, "Unable to load dashboard", {
+              401: "Your session expired. Please log in again.",
+            }),
+          );
         }
       } finally {
         if (!cancelled) {

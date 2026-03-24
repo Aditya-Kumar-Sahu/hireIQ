@@ -26,6 +26,38 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
+export class ApiError extends Error {
+  status: number;
+  details: unknown;
+  url: string;
+
+  constructor(message: string, status: number, url: string, details?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.details = details;
+    this.url = url;
+  }
+}
+
+export function isApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError;
+}
+
+export function getApiErrorMessage(
+  error: unknown,
+  fallback: string,
+  overrides: Partial<Record<number, string>> = {},
+) {
+  if (isApiError(error)) {
+    return overrides[error.status] ?? error.message ?? fallback;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+}
+
 function buildUrl(path: string, searchParams?: RequestOptions["searchParams"]) {
   const url = new URL(path, API_BASE);
   Object.entries(searchParams ?? {}).forEach(([key, value]) => {
@@ -37,6 +69,7 @@ function buildUrl(path: string, searchParams?: RequestOptions["searchParams"]) {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}) {
+  const url = buildUrl(path, options.searchParams);
   const headers = new Headers();
   if (options.token) {
     headers.set("Authorization", `Bearer ${options.token}`);
@@ -50,17 +83,30 @@ async function request<T>(path: string, options: RequestOptions = {}) {
     body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(buildUrl(path, options.searchParams), {
-    method: options.method ?? "GET",
-    headers,
-    body,
-    cache: "no-store",
-    signal: options.signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: options.method ?? "GET",
+      headers,
+      body,
+      cache: "no-store",
+      signal: options.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("The request was cancelled before the backend responded.", 499, url);
+    }
+    throw new ApiError(
+      "Unable to reach the backend. Check that the API is running and try again.",
+      0,
+      url,
+      error,
+    );
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {
-    throw new Error(payload?.error ?? "Request failed");
+    throw new ApiError(payload?.error ?? "Request failed", response.status, url, payload);
   }
 
   return payload.data as T;
