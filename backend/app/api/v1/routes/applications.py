@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agents.orchestrator import run_application_pipeline
 from app.api.dependencies import CurrentUser, DBSession, Pagination
+from app.core.rate_limit import enforce_rate_limit
 from app.models.application import ApplicationStatus
 from app.schemas.application import (
     ApplicationCreate,
@@ -25,13 +26,15 @@ from app.services.applications import ApplicationService
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
 
-@router.post("", response_model=APIResponse[ApplicationResponse])
+@router.post("", response_model=APIResponse[ApplicationResponse], status_code=201)
 async def create_application(
+    request: Request,
     payload: ApplicationCreate,
     background_tasks: BackgroundTasks,
     db: DBSession,
     current_user: CurrentUser,
 ) -> APIResponse[ApplicationResponse]:
+    enforce_rate_limit(request, "60/minute", "applications:create")
     data = await ApplicationService(db, current_user).create_application(payload)
     await db.commit()
     progress = ApplicationProgressService()

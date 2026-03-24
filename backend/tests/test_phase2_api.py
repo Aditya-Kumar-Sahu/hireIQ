@@ -15,7 +15,7 @@ def _signup_and_authenticate(client: TestClient, email: str) -> str:
             "company_name": "Test Company",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()
     assert payload["success"] is True
     assert payload["data"]["user"]["email"] == email
@@ -34,7 +34,7 @@ def test_auth_signup_login_and_me_flow(client: TestClient) -> None:
         },
     )
 
-    assert signup_response.status_code == 200
+    assert signup_response.status_code == 201
     signup_payload = signup_response.json()
     assert signup_payload["success"] is True
     assert signup_payload["data"]["user"]["role"] == "admin"
@@ -57,6 +57,55 @@ def test_auth_signup_login_and_me_flow(client: TestClient) -> None:
     assert me_payload["data"]["company_id"] == signup_payload["data"]["user"]["company_id"]
 
 
+def test_health_endpoint_reports_dependency_checks(client: TestClient) -> None:
+    """Health should include database and Redis checks."""
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "version": "0.1.0",
+        "checks": {
+            "database": "ok",
+            "redis": "ok",
+        },
+    }
+
+
+def test_login_is_rate_limited(client: TestClient) -> None:
+    """Repeated login attempts from the same client should eventually return 429."""
+    email = "limited@example.com"
+    signup_response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": email,
+            "password": "supersecure123",
+            "company_name": "Rate Limit Co",
+        },
+    )
+    assert signup_response.status_code == 201
+
+    headers = {"X-Forwarded-For": "198.51.100.10"}
+    for _ in range(10):
+        response = client.post(
+            "/api/v1/auth/login",
+            headers=headers,
+            json={"email": email, "password": "supersecure123"},
+        )
+        assert response.status_code == 200
+
+    limited = client.post(
+        "/api/v1/auth/login",
+        headers=headers,
+        json={"email": email, "password": "supersecure123"},
+    )
+
+    assert limited.status_code == 429
+    payload = limited.json()
+    assert payload["success"] is False
+    assert "Rate limit exceeded" in payload["error"]
+
+
 def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
     """Core recruiter CRUD flow works end to end."""
     token = _signup_and_authenticate(client, "recruiter@example.com")
@@ -72,7 +121,7 @@ def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
             "seniority": "mid",
         },
     )
-    assert job_response.status_code == 200
+    assert job_response.status_code == 201
     job_payload = job_response.json()["data"]
     assert job_payload["title"] == "Backend Engineer"
     assert job_payload["status"] == "draft"
@@ -87,7 +136,7 @@ def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
             "resume_text": "Backend engineer with FastAPI and PostgreSQL experience.",
         },
     )
-    assert candidate_response.status_code == 200
+    assert candidate_response.status_code == 201
     candidate_payload = candidate_response.json()["data"]
     assert candidate_payload["email"] == "casey@example.com"
 
@@ -99,7 +148,7 @@ def test_jobs_candidates_and_applications_crud_flow(client: TestClient) -> None:
             "candidate_id": candidate_payload["id"],
         },
     )
-    assert application_response.status_code == 200
+    assert application_response.status_code == 201
     application_payload = application_response.json()["data"]
     assert application_payload["status"] == "submitted"
 
@@ -160,7 +209,7 @@ def test_duplicate_application_is_rejected(client: TestClient) -> None:
         headers=headers,
         json={"job_id": job_id, "candidate_id": candidate_id},
     )
-    assert first_response.status_code == 200
+    assert first_response.status_code == 201
 
     second_response = client.post(
         "/api/v1/applications",

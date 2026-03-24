@@ -13,9 +13,10 @@ import fitz
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.agents.crewai_runner import CVScreenerOutput, CrewAIPipelineRunner, PipelineContext
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.exceptions import ServiceUnavailableException
 from app.rag.embeddings import EmbeddingService
 from app.services.ats_webhooks import ATSWebhookService
@@ -367,6 +368,34 @@ def test_pdf_candidate_upload_returns_503_when_r2_is_invalid(
     assert "R2_ACCOUNT_ID" in payload["error"]
 
 
+def test_pdf_candidate_upload_rejects_invalid_magic_bytes(client: TestClient) -> None:
+    """Multipart resume ingest should reject renamed non-PDF files."""
+    signup = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "invalid-pdf@example.com",
+            "password": "supersecure123",
+            "company_name": "Validation Co",
+        },
+    )
+    token = signup.json()["data"]["access_token"]
+
+    response = client.post(
+        "/api/v1/candidates",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"resume": ("resume.pdf", b"not really a pdf", "application/pdf")},
+        data={
+            "name": "Casey Candidate",
+            "email": "casey.invalid@example.com",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["success"] is False
+    assert "valid PDF" in payload["error"]
+
+
 def test_crewai_runner_parse_output_and_recommendation_logic() -> None:
     """Runner helpers should normalize CrewAI output and expose deterministic recommendations."""
     runner = CrewAIPipelineRunner()
@@ -387,6 +416,96 @@ def test_crewai_runner_parse_output_and_recommendation_logic() -> None:
     assert CVScreenerOutput.__annotations__["score"] is float
     assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=123, prompt_tokens=100, completion_tokens=23, successful_requests=1))) == 123
     assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=0, prompt_tokens=0, completion_tokens=0, successful_requests=0))) is None
+
+
+def test_settings_require_a_strong_jwt_secret() -> None:
+    """Settings should reject JWT secrets that are too short."""
+    with pytest.raises(ValidationError):
+        Settings(JWT_SECRET_KEY="too-short")
+
+
+@pytest.mark.asyncio
+async def test_crewai_runner_uses_to_thread_for_kickoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Crew kickoff should be dispatched through asyncio.to_thread."""
+    from app.agents import crewai_runner as crewai_runner_module
+    from app.models.agent_run import AgentName
+
+    runner = CrewAIPipelineRunner()
+    context = _build_context()
+    captured: dict[str, object] = {}
+
+    class FakeCrew:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def kickoff(self, *, inputs: dict[str, object]) -> SimpleNamespace:
+            captured["inputs"] = inputs
+            return SimpleNamespace(
+                tasks_output=[SimpleNamespace(json_dict={"score": 0.77})],
+                json_dict=None,
+                pydantic=None,
+                raw='{"score": 0.1}',
+                token_usage=SimpleNamespace(
+                    total_tokens=9,
+                    prompt_tokens=4,
+                    completion_tokens=5,
+                    successful_requests=1,
+                ),
+            )
+
+    async def fake_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        captured["fn"] = fn
+        captured["kwargs"] = kwargs
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "_build_llm", lambda: object())
+    monkeypatch.setattr(runner, "build_agents", lambda context: {AgentName.CV_SCREENER: object()})
+    monkeypatch.setattr(runner, "_build_task", lambda agent_name, agent: object())
+    monkeypatch.setattr(crewai_runner_module, "Crew", FakeCrew)
+    monkeypatch.setattr(crewai_runner_module.asyncio, "to_thread", fake_to_thread)
+
+    result = await runner.run_task(AgentName.CV_SCREENER, context)
+
+    assert callable(captured["fn"])
+    assert captured["kwargs"] == {"inputs": context.model_dump()}
+    assert captured["inputs"] == context.model_dump()
+    assert result.output == {"score": 0.77}
+    assert result.used_fallback is False
+    assert result.tokens_used == 9
+
+
+@pytest.mark.asyncio
+async def test_crewai_runner_returns_fallback_metadata_on_provider_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider failures should be captured while still returning deterministic fallback output."""
+    from app.agents import crewai_runner as crewai_runner_module
+    from app.models.agent_run import AgentName
+
+    runner = CrewAIPipelineRunner()
+    context = _build_context()
+
+    class FailingCrew:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def kickoff(self, *, inputs: dict[str, object]) -> SimpleNamespace:
+            raise RuntimeError("provider timeout")
+
+    async def fake_to_thread(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "_build_llm", lambda: object())
+    monkeypatch.setattr(runner, "build_agents", lambda context: {AgentName.CV_SCREENER: object()})
+    monkeypatch.setattr(runner, "_build_task", lambda agent_name, agent: object())
+    monkeypatch.setattr(crewai_runner_module, "Crew", FailingCrew)
+    monkeypatch.setattr(crewai_runner_module.asyncio, "to_thread", fake_to_thread)
+
+    result = await runner.run_task(AgentName.CV_SCREENER, context)
+
+    assert result.used_fallback is True
+    assert result.error_message == "provider timeout"
+    assert "summary" in result.output
 
 
 @pytest.mark.asyncio

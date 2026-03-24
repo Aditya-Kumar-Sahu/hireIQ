@@ -88,6 +88,7 @@ export type AgentRun = {
   status: string;
   input: string | null;
   output: Record<string, unknown> | null;
+  used_fallback: boolean;
   error_message: string | null;
   tokens_used: number | null;
   duration_ms: number | null;

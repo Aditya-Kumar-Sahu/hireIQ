@@ -18,7 +18,7 @@ os.environ.setdefault(
     "postgresql+asyncpg://hireiq:hireiq_secret@127.0.0.1:5432/hireiq",
 )
 os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6379/0")
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key")
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-that-is-at-least-32-chars")
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["GOOGLE_API_KEY"] = ""
 os.environ["R2_ACCOUNT_ID"] = ""

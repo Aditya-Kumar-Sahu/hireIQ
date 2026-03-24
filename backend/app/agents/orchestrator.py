@@ -132,6 +132,8 @@ class ApplicationOrchestrator:
             await self._attach_side_effects(application, agent_name, context, result.output)
             agent_run.status = AgentRunStatus.COMPLETED
             agent_run.output = result.output
+            agent_run.used_fallback = result.used_fallback
+            agent_run.error_message = result.error_message
             agent_run.tokens_used = result.tokens_used
             agent_run.duration_ms = max(int((perf_counter() - started_at) * 1000), 1)
             self._apply_output(application, agent_name, result.output)

@@ -65,6 +65,7 @@ class AgentRunResponse(BaseModel):
     status: str
     input: str | None
     output: dict[str, Any] | None
+    used_fallback: bool
     error_message: str | None
     tokens_used: int | None
     duration_ms: int | None

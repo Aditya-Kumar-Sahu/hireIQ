@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://hireiq:hireiq_secret@localhost:5432/hireiq"
     PGVECTOR_ENABLED: bool = True
 
-    JWT_SECRET_KEY: str = "change-me-to-a-random-64-char-secret"
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
@@ -68,6 +69,14 @@ class Settings(BaseSettings):
     def resolved_gemini_api_key(self) -> str:
         """Return the Gemini API key, accepting Google's alternate env var too."""
         return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
+
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def jwt_secret_must_be_strong(cls, value: str) -> str:
+        """Require a strong JWT secret so the app cannot boot with a public default."""
+        if len(value.strip()) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
+        return value
 
 
 settings = Settings()

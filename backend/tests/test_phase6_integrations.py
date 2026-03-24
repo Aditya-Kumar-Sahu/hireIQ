@@ -155,7 +155,7 @@ def test_resume_pdf_upload_stores_file_and_exposes_download_url(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()["data"]
     assert payload["resume_file_url"] == f"/api/v1/candidates/{payload['id']}/resume"
     assert payload["has_embedding"] is True
@@ -170,6 +170,7 @@ def test_resume_pdf_upload_stores_file_and_exposes_download_url(
     download_response = client.get(payload["resume_file_url"], headers=headers)
     assert download_response.status_code == 200
     assert download_response.headers["content-type"] == "application/pdf"
+    assert download_response.headers["content-disposition"].startswith("attachment;")
     assert download_response.content == b"%PDF-1.4 fake resume bytes"
 
 

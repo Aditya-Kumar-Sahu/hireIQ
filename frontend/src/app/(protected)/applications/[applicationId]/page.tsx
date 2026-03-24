@@ -793,8 +793,17 @@ export default function ApplicationDetailPage() {
                       {titleCase(run.status)} / {run.duration_ms ?? 0} ms / {run.tokens_used ?? 0} tokens
                     </p>
                   </div>
-                  <Badge>{titleCase(run.status)}</Badge>
+                  <div className="flex flex-wrap gap-2">
+                    {run.used_fallback ? <Badge variant="warning">Fallback used</Badge> : null}
+                    <Badge>{titleCase(run.status)}</Badge>
+                  </div>
                 </div>
+                {run.used_fallback ? (
+                  <p className="mt-3 rounded-2xl border border-[color:var(--line)] bg-[rgba(255,245,230,0.9)] px-4 py-3 text-sm text-[color:var(--foreground)]">
+                    Live provider output was unavailable for this run, so the UI is showing a deterministic fallback result.
+                    {run.error_message ? ` Provider error: ${run.error_message}` : ""}
+                  </p>
+                ) : null}
                 {run.output ? (
                   <div className="mt-3">
                     <AgentOutputSections agentName={run.agent_name} output={run.output} />

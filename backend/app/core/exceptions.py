@@ -61,3 +61,10 @@ class ServiceUnavailableException(HireIQException):
 
     def __init__(self, message: str) -> None:
         super().__init__(message=message, status_code=503)
+
+
+class TooManyRequestsException(HireIQException):
+    """Rate limit exceeded (429)."""
+
+    def __init__(self, message: str = "Rate limit exceeded") -> None:
+        super().__init__(message=message, status_code=429)

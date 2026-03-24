@@ -109,7 +109,7 @@ def test_phase3_embeddings_and_semantic_search_flow(
             "seniority": "mid",
         },
     )
-    assert job_response.status_code == 200
+    assert job_response.status_code == 201
     assert job_response.json()["data"]["has_embedding"] is True
 
     backend_candidate = client.post(
@@ -121,7 +121,7 @@ def test_phase3_embeddings_and_semantic_search_flow(
             "resume_text": "Python backend engineer with FastAPI and PostgreSQL.",
         },
     )
-    assert backend_candidate.status_code == 200
+    assert backend_candidate.status_code == 201
     assert backend_candidate.json()["data"]["has_embedding"] is True
 
     frontend_candidate = client.post(
@@ -133,7 +133,7 @@ def test_phase3_embeddings_and_semantic_search_flow(
             "resume_text": "Frontend React engineer with design systems.",
         },
     )
-    assert frontend_candidate.status_code == 200
+    assert frontend_candidate.status_code == 201
     assert frontend_candidate.json()["data"]["has_embedding"] is True
 
     search_response = client.get(
@@ -178,7 +178,7 @@ def test_candidate_pdf_upload_parses_resume_and_generates_embedding(
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 201
     payload = response.json()["data"]
     assert payload["has_embedding"] is True
 

@@ -27,9 +27,14 @@ class R2ResumeStorageService:
         "R2_SECRET_ACCESS_KEY",
         "R2_BUCKET_NAME",
     )
+    OPTIONAL_TRIGGER_SETTINGS = (
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+    )
 
     def has_any_configuration(self) -> bool:
-        return any(bool(getattr(settings, field)) for field in self.REQUIRED_SETTINGS) or bool(
+        return any(bool(getattr(settings, field)) for field in self.OPTIONAL_TRIGGER_SETTINGS) or bool(
             settings.R2_ENDPOINT_URL
         )
 

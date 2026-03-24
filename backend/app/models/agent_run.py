@@ -77,6 +77,7 @@ class AgentRun(Base):
     )
     input: Mapped[str | None] = mapped_column(Text, nullable=True)
     output: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    used_fallback: Mapped[bool] = mapped_column(default=False, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

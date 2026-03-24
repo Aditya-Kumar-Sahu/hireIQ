@@ -15,7 +15,7 @@ from app.services.jobs import JobService
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
 
-@router.post("", response_model=APIResponse[JobResponse])
+@router.post("", response_model=APIResponse[JobResponse], status_code=201)
 async def create_job(
     payload: JobCreate,
     db: DBSession,

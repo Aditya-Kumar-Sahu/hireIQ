@@ -133,14 +133,14 @@ def test_application_submission_triggers_agent_pipeline_and_logs_runs(
         headers=headers,
         json={"job_id": job["id"], "candidate_id": previous_candidate["id"]},
     )
-    assert previous_application.status_code == 200
+    assert previous_application.status_code == 201
 
     application_response = client.post(
         "/api/v1/applications",
         headers=headers,
         json={"job_id": job["id"], "candidate_id": candidate["id"]},
     )
-    assert application_response.status_code == 200
+    assert application_response.status_code == 201
 
     detail_response = client.get(
         f"/api/v1/applications/{application_response.json()['data']['id']}",
@@ -165,6 +165,7 @@ def test_application_submission_triggers_agent_pipeline_and_logs_runs(
         "offer_writer",
     ]
     assert all(agent_run["status"] == "completed" for agent_run in agent_runs)
+    assert all(isinstance(agent_run["used_fallback"], bool) for agent_run in agent_runs)
     cv_screener_output = agent_runs[0]["output"]
     assert "matched_skills" in cv_screener_output
     assert "missing_skills" in cv_screener_output

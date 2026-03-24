@@ -1,6 +1,8 @@
 """CrewAI-backed application pipeline runner with deterministic local fallback."""
 
+import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -9,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from app.models.agent_run import AgentName
 from app.services.screening import ScreeningInsightsService
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineContext(BaseModel):
@@ -71,6 +75,8 @@ class AgentTaskResult(BaseModel):
     """Normalized output from a single agent execution."""
 
     output: dict[str, object]
+    used_fallback: bool = False
+    error_message: str | None = None
     tokens_used: int | None = None
 
 
@@ -151,7 +157,10 @@ class CrewAIPipelineRunner:
     async def run_task(self, agent_name: AgentName, context: PipelineContext) -> AgentTaskResult:
         """Execute one pipeline task using CrewAI when configured, else a deterministic fallback."""
         if self._build_llm() is None:
-            return AgentTaskResult(output=self._fallback_output(agent_name, context))
+            return AgentTaskResult(
+                output=self._fallback_output(agent_name, context),
+                used_fallback=True,
+            )
 
         try:
             agents = self.build_agents(context)
@@ -163,15 +172,19 @@ class CrewAIPipelineRunner:
                 process=Process.sequential,
                 verbose=False,
             )
-            crew_output = crew.kickoff(inputs=context.model_dump())
+            crew_output = await asyncio.to_thread(crew.kickoff, inputs=context.model_dump())
             parsed_output = self._parse_output(crew_output)
             return AgentTaskResult(
                 output=parsed_output,
                 tokens_used=self._extract_token_usage(crew_output),
             )
-        except Exception:
-            # Keep the pipeline moving if CrewAI or provider-side parsing fails.
-            return AgentTaskResult(output=self._fallback_output(agent_name, context))
+        except Exception as exc:
+            logger.exception("CrewAI run failed for agent %s", agent_name.value)
+            return AgentTaskResult(
+                output=self._fallback_output(agent_name, context),
+                used_fallback=True,
+                error_message=str(exc),
+            )
 
     def _build_task(self, agent_name: AgentName, agent: Agent) -> Task:
         """Build the CrewAI task definition for a single agent."""

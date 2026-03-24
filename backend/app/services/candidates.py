@@ -25,6 +25,9 @@ from app.schemas.candidate import (
 from app.schemas.common import PaginatedResponse, PaginationParams
 from app.services.storage import R2ResumeStorageService
 
+PDF_MAGIC = b"%PDF"
+ALLOWED_PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
+
 
 async def _maybe_await(value: object) -> object:
     if inspect.isawaitable(value):
@@ -70,11 +73,16 @@ class CandidateService:
         email: str,
         linkedin_url: str | None,
         filename: str,
+        content_type: str | None,
         file_bytes: bytes,
     ) -> CandidateResponse:
         """Parse a resume PDF, store the original file, and create a candidate."""
         if not filename.lower().endswith(".pdf"):
             raise BadRequestException("Resume upload must be a PDF")
+        if content_type and content_type.lower() not in ALLOWED_PDF_CONTENT_TYPES:
+            raise BadRequestException("Uploaded file content type must be application/pdf")
+        if not file_bytes.startswith(PDF_MAGIC):
+            raise BadRequestException("Uploaded file does not appear to be a valid PDF")
 
         resume_text = self.resume_parser.extract_text(file_bytes)
         await self._ensure_email_is_available(email)
