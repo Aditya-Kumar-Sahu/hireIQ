@@ -14,7 +14,7 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
-from app.agents.crewai_runner import CrewAIPipelineRunner, PipelineContext
+from app.agents.crewai_runner import CVScreenerOutput, CrewAIPipelineRunner, PipelineContext
 from app.core.config import settings
 from app.core.exceptions import ServiceUnavailableException
 from app.rag.embeddings import EmbeddingService
@@ -384,6 +384,9 @@ def test_crewai_runner_parse_output_and_recommendation_logic() -> None:
     assert parsed == {"score": 0.91}
     assert runner.recommendation(context) == "proceed"
     assert runner.default_scheduler_slots()
+    assert CVScreenerOutput.__annotations__["score"] is float
+    assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=123, prompt_tokens=100, completion_tokens=23, successful_requests=1))) == 123
+    assert runner._extract_token_usage(SimpleNamespace(token_usage=SimpleNamespace(total_tokens=0, prompt_tokens=0, completion_tokens=0, successful_requests=0))) is None
 
 
 @pytest.mark.asyncio

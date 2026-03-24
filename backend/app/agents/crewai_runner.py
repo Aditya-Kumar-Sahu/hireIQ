@@ -1,7 +1,5 @@
 """CrewAI-backed application pipeline runner with deterministic local fallback."""
 
-from __future__ import annotations
-
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -73,7 +71,7 @@ class AgentTaskResult(BaseModel):
     """Normalized output from a single agent execution."""
 
     output: dict[str, object]
-    tokens_used: int = 0
+    tokens_used: int | None = None
 
 
 class CrewAIPipelineRunner:
@@ -153,23 +151,27 @@ class CrewAIPipelineRunner:
     async def run_task(self, agent_name: AgentName, context: PipelineContext) -> AgentTaskResult:
         """Execute one pipeline task using CrewAI when configured, else a deterministic fallback."""
         if self._build_llm() is None:
-            return AgentTaskResult(output=self._fallback_output(agent_name, context), tokens_used=0)
+            return AgentTaskResult(output=self._fallback_output(agent_name, context))
 
-        agents = self.build_agents(context)
-        agent = agents[agent_name]
-        task = self._build_task(agent_name, agent)
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            verbose=False,
-        )
-        crew_output = crew.kickoff(inputs=context.model_dump())
-        parsed_output = self._parse_output(crew_output)
-        tokens = 0
-        if crew_output.token_usage is not None:
-            tokens = int(getattr(crew_output.token_usage, "total_tokens", 0) or 0)
-        return AgentTaskResult(output=parsed_output, tokens_used=tokens)
+        try:
+            agents = self.build_agents(context)
+            agent = agents[agent_name]
+            task = self._build_task(agent_name, agent)
+            crew = Crew(
+                agents=[agent],
+                tasks=[task],
+                process=Process.sequential,
+                verbose=False,
+            )
+            crew_output = crew.kickoff(inputs=context.model_dump())
+            parsed_output = self._parse_output(crew_output)
+            return AgentTaskResult(
+                output=parsed_output,
+                tokens_used=self._extract_token_usage(crew_output),
+            )
+        except Exception:
+            # Keep the pipeline moving if CrewAI or provider-side parsing fails.
+            return AgentTaskResult(output=self._fallback_output(agent_name, context))
 
     def _build_task(self, agent_name: AgentName, agent: Agent) -> Task:
         """Build the CrewAI task definition for a single agent."""
@@ -228,6 +230,29 @@ class CrewAIPipelineRunner:
         if crew_output.pydantic:
             return crew_output.pydantic.model_dump()
         return json.loads(crew_output.raw)
+
+    @staticmethod
+    def _extract_token_usage(crew_output: Any) -> int | None:
+        """Return total tokens when CrewAI reports usage metrics."""
+        token_usage = getattr(crew_output, "token_usage", None)
+        if token_usage is None:
+            return None
+
+        if isinstance(token_usage, dict):
+            total_tokens = token_usage.get("total_tokens")
+            prompt_tokens = token_usage.get("prompt_tokens")
+            completion_tokens = token_usage.get("completion_tokens")
+            successful_requests = token_usage.get("successful_requests")
+        else:
+            total_tokens = getattr(token_usage, "total_tokens", None)
+            prompt_tokens = getattr(token_usage, "prompt_tokens", None)
+            completion_tokens = getattr(token_usage, "completion_tokens", None)
+            successful_requests = getattr(token_usage, "successful_requests", None)
+
+        values = [total_tokens, prompt_tokens, completion_tokens, successful_requests]
+        if not any((value or 0) for value in values):
+            return None
+        return int(total_tokens or 0)
 
     def _build_llm(self) -> LLM | None:
         """Return the configured CrewAI LLM, or None when local fallback should be used."""

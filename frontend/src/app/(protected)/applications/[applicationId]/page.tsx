@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
@@ -40,6 +40,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function formatStructuredKey(key: string) {
   return titleCase(key.replace(/\./g, " ").replace(/_/g, " "));
+}
+
+function formatTokenCount(tokens: number | null | undefined) {
+  return typeof tokens === "number" ? `${tokens} tokens` : "Usage unavailable";
 }
 
 function StructuredValue({
@@ -394,9 +398,11 @@ export default function ApplicationDetailPage() {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [streamStatus, setStreamStatus] = useState<"connecting" | "live" | "reconnecting">(
-    "connecting",
-  );
+  const [showLoadingPane, setShowLoadingPane] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<
+    "connecting" | "live" | "reconnecting" | "complete" | "failed"
+  >("connecting");
+  const terminalStreamEvent = useRef(false);
 
   useEffect(() => {
     const currentId = applicationId;
@@ -406,9 +412,16 @@ export default function ApplicationDetailPage() {
     const resolvedId: string = currentId;
 
     let cancelled = false;
+    let loadingTimer: number | undefined;
     async function load() {
       setLoading(true);
+      setShowLoadingPane(false);
       setError(null);
+      loadingTimer = window.setTimeout(() => {
+        if (!cancelled) {
+          setShowLoadingPane(true);
+        }
+      }, 250);
       try {
         const [applicationResponse, similarJobsResponse] = await Promise.all([
           getApplication(token, resolvedId),
@@ -429,6 +442,10 @@ export default function ApplicationDetailPage() {
         }
       } finally {
         if (!cancelled) {
+          if (loadingTimer) {
+            window.clearTimeout(loadingTimer);
+          }
+          setShowLoadingPane(false);
           setLoading(false);
         }
       }
@@ -467,26 +484,37 @@ export default function ApplicationDetailPage() {
           }
           return [...current, payload];
         });
+        if (payload.event === "complete" || payload.event === "failed") {
+          terminalStreamEvent.current = true;
+          setStreamStatus(payload.event);
+          source.close();
+        }
       } catch {
         // Ignore malformed events and keep the stream alive.
       }
     };
 
     source.onopen = () => {
-      setStreamStatus("live");
+      if (!terminalStreamEvent.current) {
+        setStreamStatus("live");
+      }
     };
     eventNames.forEach((name) => source.addEventListener(name, handler));
     source.onerror = () => {
+      if (terminalStreamEvent.current) {
+        return;
+      }
       setStreamStatus("reconnecting");
     };
 
     return () => {
+      terminalStreamEvent.current = false;
       eventNames.forEach((name) => source.removeEventListener(name, handler));
       source.close();
     };
   }, [applicationId]);
 
-  if (loading && !application) {
+  if (loading && !application && showLoadingPane) {
     return (
       <Card>
         <CardTitle className="text-2xl">Loading application...</CardTitle>
@@ -495,6 +523,10 @@ export default function ApplicationDetailPage() {
         </CardDescription>
       </Card>
     );
+  }
+
+  if (loading && !application) {
+    return <div className="min-h-[40vh]" aria-hidden="true" />;
   }
 
   if (!application) {
@@ -604,9 +636,9 @@ export default function ApplicationDetailPage() {
               <CardTitle className="mt-2 text-3xl">Pipeline activity</CardTitle>
             </div>
             <div className="flex items-center gap-2">
-              <Badge
-                variant={
-                  streamStatus === "live"
+                <Badge
+                  variant={
+                  streamStatus === "live" || streamStatus === "complete"
                     ? "success"
                     : streamStatus === "reconnecting"
                       ? "warning"
@@ -615,6 +647,8 @@ export default function ApplicationDetailPage() {
               >
                 {streamStatus === "live"
                   ? "Live"
+                  : streamStatus === "complete"
+                    ? "Complete"
                   : streamStatus === "reconnecting"
                     ? "Reconnecting"
                     : "Connecting"}
@@ -624,11 +658,13 @@ export default function ApplicationDetailPage() {
               </div>
             </div>
           </div>
-          <div className="mt-6 grid gap-3">
+          <div className="mt-6 max-h-[72vh] grid gap-3 overflow-y-auto pr-2">
             {events.length === 0 ? (
               <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
                 <p className="text-sm text-[color:var(--muted)]">
-                  {streamStatus === "reconnecting"
+                  {streamStatus === "failed"
+                    ? "The pipeline reported a failure. Open the failed stage below for details."
+                    : streamStatus === "reconnecting"
                     ? "The live feed hit a temporary interruption. EventSource is retrying automatically."
                     : "Waiting for stream events. This endpoint replays history, so refreshing the page is safe even after the pipeline completes."}
                 </p>
@@ -744,7 +780,7 @@ export default function ApplicationDetailPage() {
         <Card>
           <p className="eyebrow">Agent runs</p>
           <CardTitle className="mt-2 text-3xl">Execution log</CardTitle>
-          <div className="mt-6 grid gap-3">
+          <div className="mt-6 max-h-[72vh] grid gap-3 overflow-y-auto pr-2">
             {application.agent_runs.map((run) => (
               <div
                 key={run.id}
@@ -764,6 +800,9 @@ export default function ApplicationDetailPage() {
                     <AgentOutputSections agentName={run.agent_name} output={run.output} />
                   </div>
                 ) : null}
+                <p className="mt-3 text-xs uppercase tracking-[0.16em] text-[color:var(--muted-soft)]">
+                  {formatTokenCount(run.tokens_used)}
+                </p>
               </div>
             ))}
           </div>
