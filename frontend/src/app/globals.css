@@ -28,7 +28,7 @@ body {
     linear-gradient(180deg, #fffaf4 0%, #fbf6ee 46%, #f3ead8 100%);
 }
 
-body::selection {
+::selection {
   background: rgba(193, 92, 47, 0.18);
 }
 

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { AlertCircle, Search } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ListItemSkeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createCandidate,
@@ -181,8 +182,15 @@ export default function CandidatesPage() {
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Candidate workspace issue</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Candidate workspace issue</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
@@ -222,7 +230,11 @@ export default function CandidatesPage() {
 
           <div className="mt-6 grid gap-3">
             {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading candidates...</p>
+              <>
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+              </>
             ) : visibleCandidates.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No candidates yet. Add the first profile to start semantic matching.
@@ -234,7 +246,11 @@ export default function CandidatesPage() {
                   <button
                     key={candidate.id}
                     className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4 text-left transition hover:border-[color:var(--accent)]"
-                    onClick={() => setSelectedCandidateId(candidate.id)}
+                    onClick={() => {
+                      setSelectedCandidateId(candidate.id);
+                      setSearchResults(null);
+                      setQuery("");
+                    }}
                     type="button"
                   >
                     <div className="flex items-center justify-between gap-4">
@@ -357,7 +373,11 @@ export default function CandidatesPage() {
           <p className="eyebrow">Similar jobs</p>
           <CardTitle className="mt-2 text-3xl">Best matching roles</CardTitle>
           <div className="mt-6 grid gap-3">
-            {selectedCandidateId && similarJobs.length === 0 ? (
+            {!selectedCandidateId ? (
+              <p className="text-sm text-[color:var(--muted)]">
+                Select a candidate from the list to see matching roles.
+              </p>
+            ) : similarJobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No similar jobs available yet. Create more roles or wait for embeddings to be ready.
               </p>
