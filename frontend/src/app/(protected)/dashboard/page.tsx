@@ -8,7 +8,7 @@ import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
-import { CardSkeleton, ListItemSkeleton, StatCardSkeleton } from "@/components/ui/skeleton";
+import { ListItemSkeleton } from "@/components/ui/skeleton";
 import { listApplications, listCandidates, listJobs } from "@/lib/api";
 import type { Application, Candidate, Job } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
