@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BriefcaseBusiness, Plus } from "lucide-react";
+import { AlertCircle, ArrowRight, BriefcaseBusiness, Plus } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { CardSkeleton } from "@/components/ui/skeleton";
 import { listApplications, listJobs } from "@/lib/api";
 import type { Application, Job } from "@/lib/types";
 import { titleCase } from "@/lib/utils";
@@ -75,13 +76,23 @@ export default function JobsPage() {
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Unable to load jobs</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Unable to load jobs</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-[color:var(--muted)]">Loading jobs...</p>
+        <section className="grid gap-4 xl:grid-cols-2">
+          <CardSkeleton />
+          <CardSkeleton />
+        </section>
       ) : jobs.length === 0 ? (
         <Card>
           <CardTitle className="text-2xl">No jobs yet</CardTitle>
@@ -96,8 +107,8 @@ export default function JobsPage() {
               (application) => application.job_id === job.id,
             );
             return (
-              <Link key={job.id} href={`/jobs/${job.id}`}>
-                <Card className="h-full transition hover:border-[color:var(--accent)]">
+              <Card key={job.id} className="group relative h-full transition hover:border-[color:var(--accent)]">
+                <Link href={`/jobs/${job.id}`} className="absolute inset-0 z-10" aria-label={`View ${job.title} role board`} />
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="eyebrow">Role</p>
@@ -143,8 +154,7 @@ export default function JobsPage() {
                     Open role board
                     <ArrowRight className="h-4 w-4" />
                   </div>
-                </Card>
-              </Link>
+              </Card>
             );
           })}
         </section>

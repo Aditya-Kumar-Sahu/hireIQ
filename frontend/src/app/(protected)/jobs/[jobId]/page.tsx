@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AlertCircle } from "lucide-react";
+
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { CardSkeleton } from "@/components/ui/skeleton";
 import { createApplication, listApplications, listCandidates, getJob, updateJob } from "@/lib/api";
 import type { Application, Candidate, Job, JobStatus } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
@@ -78,7 +81,14 @@ export default function JobDetailPage() {
   }, [jobId, token]);
 
   if (loading) {
-    return <p className="text-sm text-[color:var(--muted)]">Loading role board...</p>;
+    return (
+      <div className="space-y-8">
+        <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+          <CardSkeleton />
+          <CardSkeleton />
+        </section>
+      </div>
+    );
   }
 
   if (!job) {
@@ -157,7 +167,7 @@ export default function JobDetailPage() {
               <p className="text-sm font-semibold">Update role status</p>
               <div className="mt-3 flex flex-wrap gap-3">
                 <select
-                  className="h-11 min-w-[180px] rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
+                  className="h-11 min-w-[180px] rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none transition focus:border-[color:var(--accent)] focus:ring-2 focus:ring-[rgba(193,92,47,0.16)]"
                   value={statusValue}
                   onChange={(event) => setStatusValue(event.target.value as JobStatus)}
                 >
@@ -180,7 +190,7 @@ export default function JobDetailPage() {
                 Pick an existing candidate profile and launch the agent pipeline immediately.
               </p>
               <select
-                className="mt-4 h-11 w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none"
+                className="mt-4 h-11 w-full rounded-2xl border border-[color:var(--line)] bg-white/90 px-4 text-sm outline-none transition focus:border-[color:var(--accent)] focus:ring-2 focus:ring-[rgba(193,92,47,0.16)]"
                 value={selectedCandidateId}
                 onChange={(event) => setSelectedCandidateId(event.target.value)}
               >
@@ -212,8 +222,15 @@ export default function JobDetailPage() {
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Role board warning</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Role board warning</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
@@ -228,7 +245,7 @@ export default function JobDetailPage() {
           </p>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
           {columns.map((column) => {
             const items = applications.filter((application) => application.status === column.status);
             return (

@@ -5,8 +5,9 @@ import { ArrowRight, Sparkles, Workflow } from "lucide-react";
 
 import { TOKEN_COOKIE_NAME } from "@/lib/auth";
 
-export default function Home() {
-  const hasToken = cookies().has(TOKEN_COOKIE_NAME);
+export default async function Home() {
+  const cookieStore = await cookies();
+  const hasToken = cookieStore.has(TOKEN_COOKIE_NAME);
   if (hasToken) {
     redirect("/dashboard");
   }

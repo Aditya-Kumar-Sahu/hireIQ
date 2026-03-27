@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BriefcaseBusiness, Radar, Users } from "lucide-react";
+import { AlertCircle, ArrowRight, BriefcaseBusiness, Radar, Users } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { ListItemSkeleton } from "@/components/ui/skeleton";
 import { listApplications, listCandidates, listJobs } from "@/lib/api";
 import type { Application, Candidate, Job } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
@@ -89,12 +90,19 @@ export default function DashboardPage() {
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Unable to load dashboard</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Unable to load dashboard</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {[
           {
             label: "Open jobs",
@@ -150,7 +158,11 @@ export default function DashboardPage() {
           </div>
           <div className="mt-6 grid gap-3">
             {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading applications...</p>
+              <>
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+              </>
             ) : applications.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No applications yet. Create a job, add a candidate, and submit the first profile to
@@ -185,7 +197,11 @@ export default function DashboardPage() {
           <CardTitle className="mt-2 text-3xl">Roles needing attention</CardTitle>
           <div className="mt-6 grid gap-3">
             {loading ? (
-              <p className="text-sm text-[color:var(--muted)]">Loading jobs...</p>
+              <>
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+                <ListItemSkeleton />
+              </>
             ) : jobs.length === 0 ? (
               <p className="text-sm text-[color:var(--muted)]">
                 No jobs have been posted yet. Create the first role to start the recruiter workflow.

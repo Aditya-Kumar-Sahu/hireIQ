@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, ExternalLink, Mail, TimerReset } from "lucide-react";
+import { Activity, AlertCircle, ExternalLink, Mail, TimerReset } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
@@ -522,8 +522,15 @@ export default function ApplicationDetailPage() {
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Application issue</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Application issue</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
@@ -592,7 +599,7 @@ export default function ApplicationDetailPage() {
         </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <section className="grid gap-4 lg:grid-cols-2">
         <Card>
           <p className="eyebrow">Assessment</p>
           <CardTitle className="mt-2 text-3xl">Interview question set</CardTitle>
