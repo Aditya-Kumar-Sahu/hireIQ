@@ -8,6 +8,7 @@ import { Activity, AlertCircle, ExternalLink, Mail, TimerReset } from "lucide-re
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { CardSkeleton } from "@/components/ui/skeleton";
 import { getApplication, getSimilarJobsForApplication } from "@/lib/api";
 import type { ApplicationDetail, SimilarJobResult } from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/utils";
@@ -393,6 +394,7 @@ export default function ApplicationDetailPage() {
   const [similarJobs, setSimilarJobs] = useState<SimilarJobResult[]>([]);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const currentId = applicationId;
@@ -403,6 +405,7 @@ export default function ApplicationDetailPage() {
 
     let cancelled = false;
     async function load() {
+      setLoading(true);
       setError(null);
       try {
         const [applicationResponse, similarJobsResponse] = await Promise.all([
@@ -416,6 +419,10 @@ export default function ApplicationDetailPage() {
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Unable to load application");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
     }
@@ -471,10 +478,16 @@ export default function ApplicationDetailPage() {
 
   if (!application) {
     return (
-      <Card>
-        <CardTitle className="text-2xl">Loading application...</CardTitle>
-        <CardDescription>{error ?? "Fetching screening results and agent output."}</CardDescription>
-      </Card>
+      <div className="space-y-8">
+        <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+          <CardSkeleton />
+          <CardSkeleton />
+        </section>
+        <section className="grid gap-4 lg:grid-cols-2">
+          <CardSkeleton />
+          <CardSkeleton />
+        </section>
+      </div>
     );
   }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { AlertCircle, CheckCircle } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Badge } from "@/components/ui/badge";
@@ -124,15 +125,29 @@ export default function SettingsPage() {
 
       {notice ? (
         <Card className="border-[rgba(17,118,89,0.14)] bg-[rgba(239,252,247,0.9)]">
-          <CardTitle className="text-xl">Integration update</CardTitle>
-          <CardDescription>{notice}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(17,118,89,0.1)] p-2 text-[color:var(--success)]">
+              <CheckCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Integration update</CardTitle>
+              <CardDescription>{notice}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 
       {error ? (
         <Card className="border-[rgba(180,35,24,0.15)] bg-[rgba(255,241,240,0.8)]">
-          <CardTitle className="text-xl">Unable to load settings</CardTitle>
-          <CardDescription>{error}</CardDescription>
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-[rgba(180,35,24,0.1)] p-2 text-[color:var(--danger)]">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Unable to load settings</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </div>
+          </div>
         </Card>
       ) : null}
 

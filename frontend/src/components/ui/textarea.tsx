@@ -9,7 +9,7 @@ export function Textarea({
   return (
     <textarea
       className={cn(
-        "min-h-[140px] w-full rounded-[1.4rem] border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm outline-none transition placeholder:text-[color:var(--muted-soft)] focus:border-[color:var(--accent)] focus:ring-2 focus:ring-[rgba(193,92,47,0.16)]",
+        "min-h-[140px] w-full resize-y rounded-[1.4rem] border border-[color:var(--line)] bg-white/80 px-4 py-3 text-sm leading-relaxed outline-none transition placeholder:text-[color:var(--muted-soft)] focus:border-[color:var(--accent)] focus:ring-2 focus:ring-[rgba(193,92,47,0.16)]",
         className,
       )}
       {...props}

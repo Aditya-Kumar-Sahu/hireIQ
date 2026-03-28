@@ -15,7 +15,7 @@ export default async function Home() {
   return (
     <main className="min-h-screen px-6 py-10 md:px-12">
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-7xl flex-col justify-between gap-12 rounded-[2rem] border border-white/60 bg-white/55 p-8 shadow-[0_30px_120px_rgba(92,52,19,0.14)] backdrop-blur-xl md:p-12">
-        <header className="flex items-center justify-between gap-4">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="eyebrow">HireIQ</p>
             <p className="text-sm text-[color:var(--muted)]">

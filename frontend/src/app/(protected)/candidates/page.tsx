@@ -344,7 +344,11 @@ export default function CandidatesPage() {
           <CardTitle className="mt-2 text-3xl">
             {selectedCandidate?.name ?? "Choose a candidate"}
           </CardTitle>
-          {selectedCandidate ? (
+          {selectedCandidateId && !selectedCandidate ? (
+            <div className="mt-6 space-y-4">
+              <ListItemSkeleton />
+            </div>
+          ) : selectedCandidate ? (
             <div className="mt-6 space-y-4">
               <div className="rounded-[1.2rem] border border-[color:var(--line)] bg-white/75 p-4">
                 <p className="text-sm text-[color:var(--muted)]">{selectedCandidate.email}</p>

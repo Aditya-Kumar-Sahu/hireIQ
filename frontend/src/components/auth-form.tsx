@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
 
 import { login, signup } from "@/lib/api";
 import { persistToken } from "@/lib/auth";
@@ -90,9 +91,10 @@ export function AuthForm({ mode }: AuthFormProps) {
           />
         </label>
         {error ? (
-          <p className="rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
+          <div className="flex items-center gap-3 rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
+            <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
-          </p>
+          </div>
         ) : null}
         <Button className="w-full" data-testid="auth-submit" disabled={loading} type="submit">
           {loading

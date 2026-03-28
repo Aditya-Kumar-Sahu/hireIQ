@@ -11,9 +11,17 @@ const variantClasses: Record<BadgeVariant, string> = {
   danger: "bg-[rgba(180,35,24,0.12)] text-[color:var(--danger)]",
 };
 
+const variantAriaLabels: Record<BadgeVariant, string> = {
+  default: "",
+  success: "Success: ",
+  warning: "Warning: ",
+  danger: "Error: ",
+};
+
 export function Badge({
   className,
   variant = "default",
+  children,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & { variant?: BadgeVariant }) {
   return (
@@ -24,6 +32,11 @@ export function Badge({
         className,
       )}
       {...props}
-    />
+    >
+      {variantAriaLabels[variant] && (
+        <span className="sr-only">{variantAriaLabels[variant]}</span>
+      )}
+      {children}
+    </span>
   );
 }
