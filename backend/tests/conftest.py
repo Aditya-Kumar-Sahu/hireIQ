@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import os
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,11 +28,12 @@ os.environ["R2_ACCESS_KEY_ID"] = ""
 os.environ["R2_SECRET_ACCESS_KEY"] = ""
 os.environ["R2_ENDPOINT_URL"] = ""
 
-from app.main import app  # noqa: E402
 from app.core.config import settings  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 TEST_DATABASE_URL = os.environ["DATABASE_URL"]
+TEST_STATE_LOCK_PATH = Path("/tmp/hireiq-test-state.lock")
 
 
 @pytest.fixture(scope="session")
@@ -53,16 +56,25 @@ async def db_session_factory() -> async_sessionmaker[AsyncSession]:
 
 @pytest.fixture(autouse=True)
 async def reset_database(db_session_factory: async_sessionmaker[AsyncSession]) -> None:
-    """Truncate mutable tables before each test for deterministic assertions."""
-    async with db_session_factory() as session:
-        await session.execute(
-            text(
-                "TRUNCATE TABLE "
-                "ats_webhook_events, agent_runs, applications, users, jobs, candidates, companies "
-                "RESTART IDENTITY CASCADE"
-            )
-        )
-        await session.commit()
+    """Reset database state before each test under a cross-process lock."""
+    TEST_STATE_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TEST_STATE_LOCK_PATH.open("w", encoding="utf-8") as lock_file:
+        # Multiple pytest processes can run in parallel; serialize state resets.
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            async with db_session_factory() as session:
+                await session.execute(
+                    text(
+                        "TRUNCATE TABLE "
+                        "ats_webhook_events, agent_runs, applications, users, jobs, candidates, companies "
+                        "RESTART IDENTITY CASCADE"
+                    )
+                )
+                await session.commit()
+
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 @pytest.fixture(autouse=True)

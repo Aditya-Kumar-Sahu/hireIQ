@@ -37,7 +37,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://hireiq:hireiq_secret@127.0.0.1:5432/hireiq
       REDIS_URL: redis://127.0.0.1:6379/0
-      JWT_SECRET_KEY: ci-secret-key
+      JWT_SECRET_KEY: ci-secret-key-32-characters-minimum
 
     steps:
       - name: Checkout
