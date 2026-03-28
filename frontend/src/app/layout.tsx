@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${sans.variable} ${display.variable} antialiased`}>
+      <body className={`${sans.variable} ${display.variable} font-sans antialiased`}>
         {children}
       </body>
     </html>

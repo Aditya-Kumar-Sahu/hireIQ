@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
 import { Button } from "@/components/ui/button";
@@ -101,7 +102,7 @@ export default function NewJobPage() {
           <label className="block space-y-2">
             <span className="text-sm font-medium text-[color:var(--muted)]">Seniority</span>
             <select
-              className="h-12 rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 text-sm outline-none"
+              className="h-12 w-full rounded-2xl border border-[color:var(--line)] bg-white/80 px-4 text-sm outline-none transition focus:border-[color:var(--accent)] focus:ring-2 focus:ring-[rgba(193,92,47,0.16)]"
               value={seniority}
               onChange={(event) => setSeniority(event.target.value)}
               disabled={loading}
@@ -118,9 +119,10 @@ export default function NewJobPage() {
             </p>
           ) : null}
           {error ? (
-            <p className="rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
+            <div className="flex items-center gap-3 rounded-2xl bg-[rgba(180,35,24,0.1)] px-4 py-3 text-sm text-[color:var(--danger)]">
+              <AlertCircle className="h-4 w-4 shrink-0" />
               {error}
-            </p>
+            </div>
           ) : null}
           <div className="flex flex-wrap gap-3">
             <Button data-testid="job-create-submit" disabled={loading} type="submit">

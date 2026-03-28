@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   BriefcaseBusiness,
   Gauge,
   LogOut,
+  Menu,
   ScanSearch,
   Settings,
   Sparkles,
+  X,
 } from "lucide-react";
 
 import { useSession } from "@/components/providers/session-provider";
@@ -27,12 +29,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { loading, logout, user } = useSession();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/login");
     }
   }, [loading, router, user]);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   if (loading || !user) {
     return (
@@ -47,8 +54,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-6 md:py-6">
+      {/* Mobile header */}
+      <div className="mb-4 flex items-center justify-between md:hidden">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-[color:var(--accent)]" />
+          <span className="text-lg font-semibold">HireIQ</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="rounded-xl border border-[color:var(--line)] bg-white/80 p-2 text-[color:var(--muted)] transition hover:bg-white hover:text-[color:var(--foreground)]"
+          aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+        >
+          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <div className="mx-auto grid min-h-[calc(100vh-2rem)] max-w-7xl gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="glass-panel rounded-[2rem] p-5">
+        <aside className={cn(
+          "glass-panel rounded-[2rem] p-5",
+          "fixed inset-y-4 left-4 right-4 z-50 md:static md:inset-auto",
+          "transition-transform duration-300 ease-in-out",
+          sidebarOpen ? "translate-x-0" : "-translate-x-[calc(100%+2rem)] md:translate-x-0"
+        )}>
           <div className="rounded-[1.65rem] bg-[linear-gradient(160deg,#fff6ee_0%,#ffe8d2_100%)] p-5">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-white/80 p-3 text-[color:var(--accent)]">
